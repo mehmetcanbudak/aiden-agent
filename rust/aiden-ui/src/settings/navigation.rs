@@ -157,20 +157,20 @@ fn keyboard_activates(key: &str) -> bool {
     matches!(key, "enter" | "space")
 }
 
-fn destination_icon(icon: SettingsDestinationIcon) -> IconName {
+fn destination_icon_path(icon: SettingsDestinationIcon) -> &'static str {
     match icon {
-        SettingsDestinationIcon::Server => IconName::Globe,
-        SettingsDestinationIcon::ChartScatter => IconName::ChartPie,
-        SettingsDestinationIcon::Wand2 => IconName::Asterisk,
-        SettingsDestinationIcon::Plug => IconName::SquareTerminal,
-        SettingsDestinationIcon::Globe => IconName::Globe,
-        SettingsDestinationIcon::Clock3 => IconName::Calendar,
-        SettingsDestinationIcon::Sparkles => IconName::Bot,
-        SettingsDestinationIcon::MousePointer2 => IconName::Inspector,
-        SettingsDestinationIcon::Mic => IconName::GalleryVerticalEnd,
-        SettingsDestinationIcon::Keyboard => IconName::Check,
-        SettingsDestinationIcon::Palette => IconName::Palette,
-        SettingsDestinationIcon::Info => IconName::Info,
+        SettingsDestinationIcon::Server => "native-icons/settings/server.svg",
+        SettingsDestinationIcon::ChartScatter => "native-icons/settings/chart-scatter.svg",
+        SettingsDestinationIcon::Wand2 => "native-icons/settings/wand-sparkles.svg",
+        SettingsDestinationIcon::Plug => "native-icons/settings/plug.svg",
+        SettingsDestinationIcon::Globe => "native-icons/settings/globe.svg",
+        SettingsDestinationIcon::Clock3 => "native-icons/settings/clock-3.svg",
+        SettingsDestinationIcon::Sparkles => "native-icons/settings/sparkles.svg",
+        SettingsDestinationIcon::MousePointer2 => "native-icons/settings/mouse-pointer-2.svg",
+        SettingsDestinationIcon::Mic => "native-icons/settings/mic.svg",
+        SettingsDestinationIcon::Keyboard => "native-icons/settings/keyboard.svg",
+        SettingsDestinationIcon::Palette => "native-icons/settings/palette.svg",
+        SettingsDestinationIcon::Info => "native-icons/settings/info.svg",
     }
 }
 
@@ -259,7 +259,11 @@ impl AppState {
                     .mb_4()
                     .px_2()
                     .gap_3()
-                    .child(Icon::new(IconName::Settings2).size(gpui::px(SETTINGS_ICON_SIZE_PX)))
+                    .child(
+                        Icon::default()
+                            .path("native-icons/settings/list-filter.svg")
+                            .size(gpui::px(SETTINGS_ICON_SIZE_PX)),
+                    )
                     .child(
                         div()
                             .text_size(gpui::px(SETTINGS_TITLE_TEXT_PX))
@@ -395,7 +399,8 @@ impl AppState {
                 }),
             )
             .child(
-                Icon::new(destination_icon(destination.icon))
+                Icon::default()
+                    .path(destination_icon_path(destination.icon))
                     .size(gpui::px(SETTINGS_ICON_SIZE_PX))
                     .text_color(theme.muted_foreground),
             )
@@ -589,5 +594,29 @@ mod tests {
         assert_eq!(SETTINGS_GROUP_TEXT_PX, 13.0);
         assert_eq!(SETTINGS_TITLE_TEXT_PX, 16.0);
         assert_eq!(SETTINGS_ICON_SIZE_PX, 20.0);
+    }
+
+    #[test]
+    fn settings_navigation_uses_the_exact_lucide_source_icons() {
+        assert_eq!(
+            destination_icon_path(SettingsDestinationIcon::Server),
+            "native-icons/settings/server.svg"
+        );
+        assert_eq!(
+            destination_icon_path(SettingsDestinationIcon::ChartScatter),
+            "native-icons/settings/chart-scatter.svg"
+        );
+        assert_eq!(
+            destination_icon_path(SettingsDestinationIcon::Wand2),
+            "native-icons/settings/wand-sparkles.svg"
+        );
+        assert_eq!(
+            destination_icon_path(SettingsDestinationIcon::MousePointer2),
+            "native-icons/settings/mouse-pointer-2.svg"
+        );
+        assert_eq!(
+            destination_icon_path(SettingsDestinationIcon::Keyboard),
+            "native-icons/settings/keyboard.svg"
+        );
     }
 }

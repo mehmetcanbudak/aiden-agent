@@ -9,28 +9,32 @@
 //! pending draft lives in a GPUI `Global` ([`ComposerDraft`]) so the hover
 //! actions in `message_list.rs` can mutate it without threading an entity.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aiden_core::Attachment;
+use aiden_data::portable_config::WorkspacePermission;
 use gpui::{
-    div, prelude::FluentBuilder as _, px, rems, AppContext as _, Context, ElementId,
-    Focusable as _, InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    div, prelude::FluentBuilder as _, px, AppContext as _, Context, ElementId, Focusable as _,
+    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    dialog::DialogButtonProps,
     h_flex,
     input::{Input, Paste},
+    menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    v_flex, ActiveTheme, Disableable as _, Icon, IconName, PixelsExt as _, Sizable as _,
-    WindowExt as _,
+    v_flex, ActiveTheme, Disableable as _, Icon, IconName, PixelsExt as _, Selectable as _,
+    Sizable as _, WindowExt as _,
 };
 
 use crate::app::AppState;
 use crate::chat::composer::{
     attachment_from_image_bytes, attachment_image_element, composer_draft, format_bytes,
     read_attachment, renderable_image_format, AttachmentError, ComposerDraft,
-    CHAT_CONTENT_MAX_WIDTH_REMS, CHAT_DOCK_GUTTER_PX, MAX_IMAGE_BYTES,
+    CHAT_CONTENT_MAX_WIDTH_PX, CHAT_DOCK_GUTTER_PX, COMPOSER_BOTTOM_PADDING_PX,
+    COMPOSER_TOP_PADDING_PX, MAX_IMAGE_BYTES,
 };
 use crate::chat::message_list::scroll_at_bottom;
 use crate::chat::model_pad_picker::{
@@ -103,7 +107,6 @@ impl AppState {
                 .into_any_element();
         }
 
-        let has_chats = !self.service.read(cx).filtered_chats().is_empty();
         let body =
             if !snapshot.has_providers {
                 // No provider configured: inline notice with a settings action.
@@ -132,48 +135,11 @@ impl AppState {
                             })),
                     )
                     .into_any_element()
-            } else if !has_chats {
-                // Quiet empty state: no chats at all (per PRODUCT.md, no
-                // decorative buttons).
-                v_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        Icon::new(IconName::Bot)
-                            .small()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child("Welcome to Aiden"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("Press ⌘N for a new chat, or type below to begin."),
-                    )
-                    .into_any_element()
             } else {
-                // Chat selected but empty.
-                v_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("New chat"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("Ask anything to get started."),
-                    )
+                div()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .child("What would you like to work on?")
                     .into_any_element()
             };
 
@@ -245,10 +211,17 @@ impl AppState {
         };
 
         let context_busy = generating || draft.attaching;
+        let workspace_permission = self
+            .service
+            .read(cx)
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.permission);
+        let thinking = self.service.read(cx).thinking_options();
         v_flex()
             .id("composer")
             .w_full()
-            .max_w(rems(CHAT_CONTENT_MAX_WIDTH_REMS))
+            .max_w(px(CHAT_CONTENT_MAX_WIDTH_PX))
             .mx_auto()
             .px(px(CHAT_DOCK_GUTTER_PX))
             .pb_4()
@@ -286,7 +259,9 @@ impl AppState {
                         theme.input
                     })
                     .shadow_md()
-                    .p_2p5()
+                    .px_2p5()
+                    .pt(px(COMPOSER_TOP_PADDING_PX))
+                    .pb(px(COMPOSER_BOTTOM_PADDING_PX))
                     .gap_1()
                     .when(draft.has_attachments(), |el| {
                         el.child(self.attachment_row(&draft, cx))
@@ -323,6 +298,7 @@ impl AppState {
                             .appearance(false)
                             .bordered(false)
                             .focus_bordered(false)
+                            .min_h(px(64.))
                             .max_h(px(192.)),
                     )
                     .when_some(readiness, |el, message| {
@@ -349,6 +325,61 @@ impl AppState {
                                     .items_center()
                                     .flex_shrink_0()
                                     .child(self.attach_button(&draft, generating, cx))
+                                    .when_some(workspace_permission, |row, permission| {
+                                        let (label, icon_path, color) = workspace_permission_meta(permission, &theme);
+                                        let app = cx.entity();
+                                        row.child(
+                                            Button::new("composer-workspace-permission")
+                                                .ghost()
+                                                .small()
+                                                .icon(
+                                                    Icon::default()
+                                                        .path(icon_path)
+                                                        .text_color(color),
+                                                )
+                                                .label(label)
+                                                .disabled(generating)
+                                                .tooltip("Workspace access")
+                                                .dropdown_menu(move |menu, _window, _cx| {
+                                                    let full_app = app.clone();
+                                                    let ask_app = app.clone();
+                                                    let none_app = app.clone();
+                                                    menu.item(PopupMenuItem::label("Workspace access"))
+                                                        .item(PopupMenuItem::separator())
+                                                        .item(permission_menu_item(
+                                                            "Full access",
+                                                            "Read and edit files, and run commands without asking.",
+                                                            permission == WorkspacePermission::Full,
+                                                        ).on_click(move |_, window, cx| {
+                                                            full_app.update(cx, |this, cx| {
+                                                                this.confirm_full_workspace_access(window, cx);
+                                                            });
+                                                        }))
+                                                        .item(permission_menu_item(
+                                                            "Ask first",
+                                                            "Read freely; confirm every edit and command.",
+                                                            permission == WorkspacePermission::Ask,
+                                                        ).on_click(move |_, _window, cx| {
+                                                            ask_app.update(cx, |this, cx| {
+                                                                this.service.update(cx, |service, cx| {
+                                                                    service.set_workspace_permission(WorkspacePermission::Ask, cx);
+                                                                });
+                                                            });
+                                                        }))
+                                                        .item(permission_menu_item(
+                                                            "No access",
+                                                            "Keep workspace files and commands unavailable.",
+                                                            permission == WorkspacePermission::None,
+                                                        ).on_click(move |_, _window, cx| {
+                                                            none_app.update(cx, |this, cx| {
+                                                                this.service.update(cx, |service, cx| {
+                                                                    service.set_workspace_permission(WorkspacePermission::None, cx);
+                                                                });
+                                                            });
+                                                        }))
+                                                }),
+                                        )
+                                    })
                                     .child(
                                         Button::new("composer-computer-use")
                                             .when(computer_use_enabled, |button| button.primary())
@@ -387,6 +418,58 @@ impl AppState {
                                     .flex_1()
                                     .flex_wrap()
                                     .justify_end()
+                                    .when_some(thinking, |row, (provider, levels, selected)| {
+                                        row.child(
+                                            h_flex()
+                                                .id("composer-thinking-level")
+                                                .h(px(28.))
+                                                .items_center()
+                                                .p(px(2.))
+                                                .rounded_full()
+                                                .bg(theme.secondary.opacity(0.5))
+                                                .children(levels.into_iter().map(|level| {
+                                                    let active = level == selected;
+                                                    let label = match level.as_str() {
+                                                        "off" => "Off",
+                                                        "low" => "Low",
+                                                        "medium" => "Med",
+                                                        "high" => "High",
+                                                        "xhigh" => "XHigh",
+                                                        "max" => "Max",
+                                                        _ => level.as_str(),
+                                                    }
+                                                    .to_string();
+                                                    let tooltip = format!(
+                                                        "{provider} thinking: {}",
+                                                        level.as_str()
+                                                    );
+                                                    Button::new(SharedString::from(format!(
+                                                        "composer-thinking-{level}"
+                                                    )))
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .h(px(24.))
+                                                    .px_1p5()
+                                                    .selected(active)
+                                                    .label(label)
+                                                    .tooltip(tooltip)
+                                                    .disabled(generating)
+                                                    .on_click(cx.listener(
+                                                        move |this, _event, _window, cx| {
+                                                            this.service.update(
+                                                                cx,
+                                                                |service, cx| {
+                                                                    service
+                                                                        .set_selected_thinking_level(
+                                                                            &level, cx,
+                                                                        );
+                                                                },
+                                                            );
+                                                        },
+                                                    ))
+                                                })),
+                                        )
+                                    })
                                     .child(self.composer_model_picker(
                                         !snapshot.has_providers || generating,
                                         window,
@@ -396,12 +479,13 @@ impl AppState {
                                         Button::new("composer-voice")
                                             .ghost()
                                             .small()
-                                            // gpui-component 0.5 does not ship a microphone asset,
-                                            // so draw the tiny semantic glyph locally while keeping
-                                            // the control in Electron's icon-only 24px footprint.
                                             .size(px(24.))
                                             .p_0()
-                                            .child(microphone_glyph(theme.foreground))
+                                            .icon(
+                                                Icon::default()
+                                                    .path("native-icons/settings/mic.svg")
+                                                    .text_color(theme.foreground),
+                                            )
                                             .disabled(generating)
                                             .tooltip("Voice input (⌘⇧D)")
                                             .on_click(cx.listener(|this, _event, window, cx| {
@@ -442,6 +526,48 @@ impl AppState {
                             ),
                     ),
             )
+    }
+
+    fn confirm_full_workspace_access(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(workspace) = self.service.read(cx).workspace.clone() else {
+            return;
+        };
+        if workspace.permission == WorkspacePermission::Full
+            || self.service.read(cx).generation_active()
+        {
+            return;
+        }
+        let folder_name = workspace
+            .folder_path
+            .as_deref()
+            .and_then(|path| Path::new(path).file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(workspace.name);
+        let app = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let app = app.clone();
+            dialog
+                .title("Enable Full Access?")
+                .w(px(480.))
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_text("Enable Full Access")
+                        .cancel_text("Cancel"),
+                )
+                .confirm()
+                .child(format!(
+                    "Aiden will be able to read and edit files, and run commands in “{folder_name}” without asking each time. You can change this any time from the composer."
+                ))
+                .on_ok(move |_, _window, cx| {
+                    app.update(cx, |this, cx| {
+                        this.service.update(cx, |service, cx| {
+                            service.set_workspace_permission(WorkspacePermission::Full, cx);
+                        });
+                    });
+                    true
+                })
+        });
     }
 
     /// Non-modal slash rows above the composer. Rows are not tab stops so the
@@ -1960,41 +2086,44 @@ fn model_provider_icon(item: &crate::chat::composer::ModelItem) -> Icon {
     })
 }
 
-/// Minimal microphone glyph for the composer voice button. This avoids adding
-/// a one-off asset source solely for an icon that gpui-component 0.5 omits.
-fn microphone_glyph(color: gpui::Hsla) -> impl IntoElement {
-    div()
-        .relative()
-        .size(px(14.))
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .left(px(4.))
-                .w(px(6.))
-                .h(px(9.))
-                .rounded_full()
-                .border_1()
-                .border_color(color),
-        )
-        .child(
-            div()
-                .absolute()
-                .top(px(8.))
-                .left(px(6.5))
-                .w(px(1.))
-                .h(px(4.))
-                .bg(color),
-        )
-        .child(
-            div()
-                .absolute()
-                .bottom_0()
-                .left(px(3.))
-                .w(px(8.))
-                .h(px(1.))
-                .bg(color),
-        )
+fn workspace_permission_meta(
+    permission: WorkspacePermission,
+    theme: &gpui_component::Theme,
+) -> (&'static str, &'static str, gpui::Hsla) {
+    match permission {
+        WorkspacePermission::Full => (
+            "Full access",
+            "native-icons/octagon-alert.svg",
+            theme.warning,
+        ),
+        WorkspacePermission::Ask => (
+            "Ask first",
+            "native-icons/shield-question.svg",
+            theme.muted_foreground,
+        ),
+        WorkspacePermission::None => ("No access", "native-icons/lock.svg", theme.muted_foreground),
+    }
+}
+
+fn permission_menu_item(
+    label: &'static str,
+    description: &'static str,
+    checked: bool,
+) -> PopupMenuItem {
+    PopupMenuItem::element(move |_window, cx| {
+        v_flex()
+            .min_w(px(260.))
+            .gap_0p5()
+            .py_0p5()
+            .child(div().text_sm().child(label))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(description),
+            )
+    })
+    .checked(checked)
 }
 
 #[cfg(test)]

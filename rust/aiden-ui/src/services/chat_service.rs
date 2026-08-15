@@ -45,7 +45,7 @@ use aiden_data::usage_store::{
 use aiden_mac::appearance::AppearanceEvent;
 use aiden_providers::catalog;
 use aiden_providers::live_discovery::{self, DiscoveryOptions, RuntimeKind};
-use aiden_providers::{StreamOptions, StreamRequest};
+use aiden_providers::{StreamOptions, StreamRequest, ThinkingLevel};
 use futures::StreamExt;
 use gpui::{AppContext as _, Context, Task, Timer};
 use gpui_tokio_bridge::{JoinError, Tokio};
@@ -655,6 +655,9 @@ pub struct ChatService {
     pub capabilities: Option<Arc<aiden_providers::model_capabilities::ModelCapabilitiesCatalog>>,
     /// Current provider + model for new turns.
     pub selection: Option<ModelSelection>,
+    /// Foreground mirror of machine-local settings used by composer controls.
+    /// Durable reads and writes stay on the background executor.
+    pub settings: serde_json::Map<String, serde_json::Value>,
     /// Sidebar list (store order: newest-updated first).
     pub chat_list: Vec<ChatMeta>,
     pub search_query: String,
@@ -760,6 +763,7 @@ impl ChatService {
             providers: Vec::new(),
             capabilities: None,
             selection: None,
+            settings: serde_json::Map::new(),
             chat_list: Vec::new(),
             search_query: String::new(),
             active_chat_id: None,
@@ -883,6 +887,7 @@ impl ChatService {
                 this.appearance_coordinator = AppearanceCoordinator::new(appearance);
                 this.restore_native_appearance(cx);
                 this.selection = this.resolve_selection(&settings);
+                this.settings = settings;
                 this.workspaces = workspaces;
                 // The most recently used workspace is the active one (the TS
                 // keeps this in localStorage; `updatedAt` is the port's proxy).
@@ -928,6 +933,146 @@ impl ChatService {
         self.providers.iter().find(|provider| provider.id == id)
     }
 
+    /// Provider label, supported effort levels, and the normalized selected
+    /// level for the composer thinking control. This mirrors the renderer's
+    /// per-provider contracts while keeping disk I/O out of render.
+    pub fn thinking_options(&self) -> Option<(String, Vec<String>, String)> {
+        let selection = self.selection.as_ref()?;
+        let provider = self.selected_provider()?;
+        let metadata = provider.model_metadata.get(&selection.model)?;
+        if metadata.reasoning != Some(true) {
+            return None;
+        }
+
+        let allowed: &[&str] = if provider.id == "google" {
+            &["off", "low", "medium", "high"]
+        } else if provider.id == "openai-codex" {
+            &["low", "medium", "high", "xhigh", "max"]
+        } else if provider.kind == aiden_data::portable_config::ProviderKind::Anthropic {
+            &["off", "low", "medium", "high", "xhigh", "max"]
+        } else {
+            return None;
+        };
+
+        let mut levels = metadata
+            .thinking_levels
+            .as_ref()
+            .map(|levels| {
+                levels
+                    .iter()
+                    .filter_map(|level| {
+                        let value = match level {
+                            aiden_data::portable_config::GenerationThinkingLevel::Off => "off",
+                            aiden_data::portable_config::GenerationThinkingLevel::Low => "low",
+                            aiden_data::portable_config::GenerationThinkingLevel::Medium => {
+                                "medium"
+                            }
+                            aiden_data::portable_config::GenerationThinkingLevel::High => "high",
+                            aiden_data::portable_config::GenerationThinkingLevel::Xhigh => "xhigh",
+                            aiden_data::portable_config::GenerationThinkingLevel::Max => "max",
+                        };
+                        allowed.contains(&value).then(|| value.to_string())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if provider.id == "google" {
+            if levels.is_empty() {
+                levels = allowed.iter().map(|level| (*level).to_string()).collect();
+            } else if !levels.iter().any(|level| level == "off") {
+                levels.insert(0, "off".to_string());
+            }
+        }
+        if levels.is_empty() {
+            return None;
+        }
+
+        let (settings_key, provider_label, preferred_default) = if provider.id == "google" {
+            ("googleThinkingByModel", "Gemini", "off")
+        } else if provider.id == "openai-codex" {
+            ("codexThinkingByModel", "Codex", "medium")
+        } else {
+            ("anthropicThinkingByModel", "Claude", "high")
+        };
+        let stored = self
+            .settings
+            .get(settings_key)
+            .and_then(serde_json::Value::as_object)
+            .and_then(|map| map.get(&selection.model))
+            .and_then(serde_json::Value::as_str);
+        let selected = stored
+            .filter(|stored| levels.iter().any(|level| level == *stored))
+            .map(str::to_string)
+            .or_else(|| {
+                levels
+                    .iter()
+                    .find(|level| level.as_str() == preferred_default)
+                    .cloned()
+            })
+            .unwrap_or_else(|| levels[0].clone());
+        Some((provider_label.to_string(), levels, selected))
+    }
+
+    fn resolved_thinking_level(&self) -> Option<ThinkingLevel> {
+        let (_, _, selected) = self.thinking_options()?;
+        match selected.as_str() {
+            "off" => None,
+            "low" => Some(ThinkingLevel::Low),
+            "medium" => Some(ThinkingLevel::Medium),
+            "high" => Some(ThinkingLevel::High),
+            "xhigh" => Some(ThinkingLevel::Xhigh),
+            "max" => Some(ThinkingLevel::Max),
+            _ => None,
+        }
+    }
+
+    /// Persist the selected model's thinking level on the background executor
+    /// and publish the returned settings snapshot back to the composer.
+    pub fn set_selected_thinking_level(&mut self, level: &str, cx: &mut Context<Self>) {
+        if self.generation_active() {
+            return;
+        }
+        let Some((_, levels, _)) = self.thinking_options() else {
+            return;
+        };
+        if !levels.iter().any(|candidate| candidate == level) {
+            return;
+        }
+        let Some(selection) = self.selection.clone() else {
+            return;
+        };
+        let Some(provider) = self.selected_provider().cloned() else {
+            return;
+        };
+        let stores = self.stores.clone();
+        let level = level.to_string();
+        cx.spawn(async move |this, cx| {
+            let model = selection.model;
+            let result = cx
+                .background_spawn(async move {
+                    if provider.id == "google" {
+                        stores.config.set_google_thinking_level(&model, &level)
+                    } else if provider.id == "openai-codex" {
+                        stores.config.set_codex_thinking_level(&model, &level)
+                    } else {
+                        stores.config.set_anthropic_thinking_level(&model, &level)
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(settings) => this.settings = settings,
+                    Err(error) => {
+                        this.active_error = Some(format!("Couldn't save thinking level: {error}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Re-read the provider catalog (+ persisted selection) from the config
     /// store. Used by the command palette's "Refresh provider catalogs" and
     /// any future settings-driven catalog invalidation. Re-enriches against
@@ -962,6 +1107,7 @@ impl ChatService {
             this.update(cx, |this, cx| {
                 this.providers = providers;
                 this.selection = this.resolve_selection(&settings);
+                this.settings = settings;
                 this.merge_local_runtime_models(cx);
                 cx.notify();
             })
@@ -1085,6 +1231,56 @@ impl ChatService {
             .cancel_for_workspace(Some(&workspace.id));
         self.persist_workspace(workspace, cx);
         cx.notify();
+    }
+
+    /// Persist a workspace-access change and publish it only after the atomic
+    /// store write succeeds. This is the native counterpart of
+    /// `workspacesApi.update(..., { permission })`.
+    pub fn set_workspace_permission(
+        &mut self,
+        permission: WorkspacePermission,
+        cx: &mut Context<Self>,
+    ) {
+        if self.generation_active() {
+            return;
+        }
+        let Some(mut workspace) = self.workspace.clone() else {
+            return;
+        };
+        if workspace.permission == permission {
+            return;
+        }
+        workspace.permission = permission;
+        let stores = self.stores.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { stores.config.save_workspace(&workspace) })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(saved) => {
+                        if let Some(previous) = this.workspace.as_ref() {
+                            this.stores.subagents.cancel_workspace(&previous.id);
+                        }
+                        if let Some(row) = this
+                            .workspaces
+                            .iter_mut()
+                            .find(|candidate| candidate.id == saved.id)
+                        {
+                            *row = saved.clone();
+                        }
+                        this.workspace = Some(saved);
+                    }
+                    Err(error) => {
+                        this.active_error =
+                            Some(format!("Couldn't change workspace access: {error}"));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Create (or refresh) a workspace from a folder chosen in the OS panel and
@@ -2705,6 +2901,7 @@ impl ChatService {
             &provider,
             computer_use_cancellation.clone(),
         );
+        let thinking_level = self.resolved_thinking_level();
         let subagents = self
             .stores
             .subagents
@@ -2724,6 +2921,7 @@ impl ChatService {
         let snapshot = TurnSnapshot {
             provider: provider.clone(),
             selection: selection.clone(),
+            thinking_level,
             messages,
             catalog: self.capabilities.clone(),
             mcp: self.mcp_context(),

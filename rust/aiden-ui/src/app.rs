@@ -21,9 +21,9 @@ use aiden_core::app_update::AppUpdateSnapshot;
 use aiden_core::appearance::{Mode, ReduceMotion};
 use futures::FutureExt;
 use gpui::{
-    actions, div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, App,
-    AppContext as _, Context, Entity, FocusHandle, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
+    actions, div, img, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement,
+    App, AppContext as _, Context, Entity, FocusHandle, Focusable as _, FontWeight, Image,
+    ImageFormat, InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
     StatefulInteractiveElement as _, Styled as _, Subscription, Timer, Window,
 };
 #[cfg(target_os = "macos")]
@@ -31,15 +31,21 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    resizable::ResizableState,
     scroll::ScrollableElement as _,
     v_flex, ActiveTheme, Disableable as _, IconName, PixelsExt as _, Sizable as _, WindowExt as _,
 };
 use gpui_tokio_bridge::Tokio;
 use std::time::Duration;
 
+/// The source app icon with Electron's exact 1.32x scale and circular mask
+/// baked into a 2x raster. GPUI's image element clips overflow to a rectangle,
+/// so using the source-derived mask preserves the original round dock mark.
+const AIDEN_MARK_CIRCLE_PNG: &[u8] = include_bytes!("../../../resources/aiden-mark-circle.png");
+
 use crate::assistant::{AssistantPanel, AssistantPanelDeps, AssistantPanelEvent};
-use crate::chat::composer::{model_items_with_layout, model_key, COMPOSER_MAX_ROWS};
+use crate::chat::composer::{
+    composer_placeholder, model_items_with_layout, model_key, COMPOSER_MAX_ROWS,
+};
 use crate::chat::model_pad_picker::ModelPadRuntime;
 use crate::chat::model_picker::{ComposerModelPicker, ModelPickerPins};
 use crate::chat::slash::{
@@ -97,6 +103,34 @@ fn pending_files_replay_authorized(
 const COMPUTER_USE_QUIT_FAILURE: &str =
     "Aiden couldn't save Computer Use safely, so it stayed open. Check settings access and try quitting again.";
 
+fn enclosing_application_bundle(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    executable
+        .ancestors()
+        .find(|candidate| {
+            candidate
+                .extension()
+                .is_some_and(|extension| extension == "app")
+        })
+        .map(std::path::Path::to_path_buf)
+}
+
+fn relaunch_current_application() -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    if let Some(bundle) = enclosing_application_bundle(&executable) {
+        std::process::Command::new("/usr/bin/open")
+            .arg("-n")
+            .arg(bundle)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    } else {
+        std::process::Command::new(executable)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+}
+
 fn claim_quit(quit_in_flight: &mut bool) -> bool {
     if *quit_in_flight {
         return false;
@@ -114,6 +148,24 @@ fn trapped_focus_index(backwards: bool, position: Option<usize>, count: usize) -
         (false, Some(position)) => position + 1,
         (false, None) => 0,
     }
+}
+
+#[derive(Clone)]
+struct SidebarResizeDrag {
+    start_width: f32,
+    start_x: Rc<Cell<Option<f32>>>,
+}
+
+struct SidebarResizeDragView;
+
+impl Render for SidebarResizeDragView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_0()
+    }
+}
+
+fn pointer_resized_sidebar_width(start_width: f32, start_x: f32, current_x: f32) -> f32 {
+    crate::shell::sidebar::clamp_sidebar_width(start_width + current_x - start_x)
 }
 
 fn computer_use_escape_decision(deciding: bool) -> Option<ComputerUseApprovalDecision> {
@@ -740,6 +792,11 @@ pub struct AppState {
     // kept alive so their state — e.g. the terminal PTY — survives view
     // switches and drawer toggles).
     pub(crate) settings: Option<Entity<SettingsView>>,
+    /// Root-mounted MCP dialog surface. The Electron Dialog primitive is
+    /// viewport-centered, so this cannot live inside the 672 px settings
+    /// content column.
+    settings_mcp_modal: Option<Entity<crate::settings::mcp::McpModalLayer>>,
+    settings_scheduled_modal: Option<Entity<crate::settings::scheduled::ScheduledModalLayer>>,
     scheduled: Option<Entity<ScheduledPanel>>,
     usage: Option<Entity<UsagePanel>>,
     subagents: Option<Entity<SubagentsPanel>>,
@@ -768,9 +825,8 @@ pub struct AppState {
     palette_invoker_focus: Option<FocusHandle>,
     /// Persisted wide-screen preference plus transient compact-overlay state.
     pub(crate) sidebar_visibility: crate::shell::sidebar::SidebarVisibility,
-    /// The persisted inline width and the state backing pointer resizing.
+    /// The persisted inline width used by both pointer and keyboard resizing.
     pub(crate) sidebar_width: f32,
-    sidebar_resizable: Entity<ResizableState>,
     /// Focus restoration and keyboard resizing for the compact overlay/rail.
     pub(crate) sidebar_return_focus: Option<FocusHandle>,
     pub(crate) sidebar_last_focus: FocusHandle,
@@ -799,6 +855,12 @@ pub struct AppState {
     computer_use_privacy_cancel_focus: FocusHandle,
     computer_use_privacy_session_focus: FocusHandle,
     computer_use_privacy_permanent_focus: FocusHandle,
+    onboarding_reset_confirm: bool,
+    onboarding_reset_busy: bool,
+    onboarding_reset_error: Option<String>,
+    onboarding_reset_return_focus: Option<FocusHandle>,
+    onboarding_reset_cancel_focus: FocusHandle,
+    onboarding_reset_confirm_focus: FocusHandle,
     pi_provider_setup: Option<PiProviderSetupModal>,
     pi_provider_cancel_focus: FocusHandle,
     pi_provider_save_focus: FocusHandle,
@@ -925,11 +987,18 @@ impl AppState {
                     .relative()
                     .size(px(48.))
                     .rounded_full()
-                    .bg(theme.sidebar_primary)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(IconName::Bot)
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(theme.border.opacity(0.6))
+                    .shadow_md()
+                    .child(
+                        img(Arc::new(Image::from_bytes(
+                            ImageFormat::Png,
+                            AIDEN_MARK_CIRCLE_PNG.to_vec(),
+                        )))
+                        .size(px(48.))
+                        .rounded_full(),
+                    )
                     .when(self.assistant_unread > 0, |el| {
                         el.child(
                             div()
@@ -948,20 +1017,6 @@ impl AppState {
                                 .child(unread.clone()),
                         )
                     }),
-            )
-            .child(
-                Button::new("assistant-bubble-open")
-                    .ghost()
-                    .xsmall()
-                    .tab_stop(false)
-                    .tooltip(if self.assistant_unread == 0 {
-                        "Open Aiden".to_string()
-                    } else {
-                        format!("Open Aiden — {unread} unread")
-                    })
-                    .on_click(cx.listener(|this, _event, window, cx| {
-                        this.open_assistant(window, cx);
-                    })),
             )
             .into_any_element()
     }
@@ -1122,8 +1177,19 @@ impl AppState {
             .min_w(px(0.))
             .bg(theme.background)
             .child(
-                gpui_component::TitleBar::new()
+                // The traffic-light inset belongs only to the leading rail.
+                // Electron's main toolbar starts 16 px inside the content
+                // column, so using gpui-component's macOS TitleBar here would
+                // incorrectly add its built-in 80 px traffic-light padding a
+                // second time.
+                div()
+                    .id("main-title-bar")
                     .h(px(crate::chat::toolbar::CHAT_TITLEBAR_HEIGHT_PX))
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(theme.title_bar_border)
+                    .bg(theme.title_bar)
+                    .window_control_area(gpui::WindowControlArea::Drag)
                     .child(
                         h_flex()
                             .size_full()
@@ -1240,15 +1306,8 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         if self.sidebar_visibility.compact {
-            let saved_width = self
-                .sidebar_resizable
-                .read(cx)
-                .sizes()
-                .first()
-                .map(|width| width.as_f32())
-                .unwrap_or(self.sidebar_width);
             let overlay_width = crate::shell::sidebar::sidebar_overlay_width(
-                saved_width,
+                self.sidebar_width,
                 window.viewport_size().width.as_f32(),
             );
             return div()
@@ -1297,41 +1356,37 @@ impl AppState {
                 .into_any_element();
         }
 
-        let config = self.stores.config.clone();
         let app = cx.weak_entity();
-        let resizable = gpui_component::resizable::h_resizable("app-body-resizable")
-            .with_state(&self.sidebar_resizable)
+        let body = h_flex()
+            .id("app-body-columns")
+            .size_full()
             .child(
-                gpui_component::resizable::resizable_panel()
-                    .size(px(self.sidebar_width))
-                    .size_range(
-                        px(crate::shell::sidebar::SIDEBAR_MIN_WIDTH)
-                            ..px(crate::shell::sidebar::SIDEBAR_MAX_WIDTH),
-                    )
+                div()
+                    .h_full()
+                    .w(px(self.sidebar_width))
+                    .flex_none()
+                    .border_r_1()
+                    .border_color(cx.theme().border)
                     .child(self.sidebar_frame(window, cx)),
             )
             .child(
-                gpui_component::resizable::resizable_panel()
-                    .size_range(px(320.)..gpui::Pixels::MAX)
+                div()
+                    .h_full()
+                    .min_w(px(320.))
+                    .flex_1()
                     .child(self.workbench_column(title, window, cx)),
-            )
-            .on_resize(move |state, _window, cx| {
-                let Some(width) = state.read(cx).sizes().first().copied() else {
-                    return;
-                };
-                let _ = app.update(cx, |this, cx| {
-                    this.sidebar_width = width.as_f32();
-                    cx.notify();
-                });
-                crate::shell::sidebar::persist_sidebar_width(config.clone(), width.as_f32(), cx);
-            });
+            );
         let theme = cx.theme();
+        let resize_drag = SidebarResizeDrag {
+            start_width: self.sidebar_width,
+            start_x: Rc::new(Cell::new(None)),
+        };
         div()
             .id("app-body")
             .relative()
             .flex_1()
             .size_full()
-            .child(resizable)
+            .child(body)
             .child(
                 div()
                     .id("sidebar-keyboard-resize")
@@ -1344,6 +1399,56 @@ impl AppState {
                     .track_focus(&self.sidebar_resize_focus)
                     .tab_stop(true)
                     .focus(move |style| style.bg(theme.list_active))
+                    .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_drag(resize_drag, |drag, position, _window, cx| {
+                        drag.start_x.set(Some(position.x.as_f32()));
+                        cx.stop_propagation();
+                        cx.new(|_| SidebarResizeDragView)
+                    })
+                    .on_drag_move({
+                        let app = app.clone();
+                        move |event: &gpui::DragMoveEvent<SidebarResizeDrag>, _window, cx| {
+                            let drag = event.drag(cx);
+                            let Some(start_x) = drag.start_x.get() else {
+                                return;
+                            };
+                            let width = pointer_resized_sidebar_width(
+                                drag.start_width,
+                                start_x,
+                                event.event.position.x.as_f32(),
+                            );
+                            let _ = app.update(cx, |this, cx| {
+                                this.sidebar_width = width;
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .on_mouse_up(gpui::MouseButton::Left, {
+                        let app = app.clone();
+                        move |_event, _window, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                crate::shell::sidebar::persist_sidebar_width(
+                                    this.stores.config.clone(),
+                                    this.sidebar_width,
+                                    cx,
+                                );
+                            });
+                        }
+                    })
+                    .on_mouse_up_out(gpui::MouseButton::Left, {
+                        let app = app.clone();
+                        move |_event, _window, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                crate::shell::sidebar::persist_sidebar_width(
+                                    this.stores.config.clone(),
+                                    this.sidebar_width,
+                                    cx,
+                                );
+                            });
+                        }
+                    })
                     .on_key_down(
                         cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
                             let shift = event.keystroke.modifiers.shift;
@@ -1353,7 +1458,6 @@ impl AppState {
                                 shift,
                             ) {
                                 this.sidebar_width = width;
-                                this.sidebar_resizable = cx.new(|_| ResizableState::default());
                                 crate::shell::sidebar::persist_sidebar_width(
                                     this.stores.config.clone(),
                                     width,
@@ -1406,8 +1510,8 @@ impl AppState {
 
         let composer_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .auto_grow(1, COMPOSER_MAX_ROWS)
-                .placeholder("Message Aiden…")
+                .auto_grow(crate::chat::composer::COMPOSER_MIN_ROWS, COMPOSER_MAX_ROWS)
+                .placeholder("My next idea is…")
         });
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search chats"));
         let model_picker_input =
@@ -1416,7 +1520,6 @@ impl AppState {
         let sidebar_compact =
             crate::shell::sidebar::is_compact_sidebar_width(window.viewport_size().width.as_f32());
         let sidebar_wide_visible = crate::shell::sidebar::load_sidebar_wide_visible(&stores.config);
-        let sidebar_resizable = cx.new(|_| ResizableState::default());
         let workspace_config = stores.config.clone();
         let environment_config = stores.config.clone();
         let files = cx.new(|cx| FilesWorkbench::new(window, cx));
@@ -1477,6 +1580,8 @@ impl AppState {
             pending_files_mutation: None,
             quit_in_flight: false,
             settings: None,
+            settings_mcp_modal: None,
+            settings_scheduled_modal: None,
             scheduled: None,
             usage: None,
             subagents: None,
@@ -1497,7 +1602,6 @@ impl AppState {
                 sidebar_compact,
             ),
             sidebar_width,
-            sidebar_resizable,
             sidebar_return_focus: None,
             sidebar_last_focus: cx.focus_handle().tab_stop(true),
             sidebar_toggle_focus: cx.focus_handle().tab_stop(true),
@@ -1525,6 +1629,12 @@ impl AppState {
             computer_use_privacy_cancel_focus: cx.focus_handle().tab_stop(true),
             computer_use_privacy_session_focus: cx.focus_handle().tab_stop(true),
             computer_use_privacy_permanent_focus: cx.focus_handle().tab_stop(true),
+            onboarding_reset_confirm: false,
+            onboarding_reset_busy: false,
+            onboarding_reset_error: None,
+            onboarding_reset_return_focus: None,
+            onboarding_reset_cancel_focus: cx.focus_handle().tab_stop(true),
+            onboarding_reset_confirm_focus: cx.focus_handle().tab_stop(true),
             pi_provider_setup: None,
             pi_provider_cancel_focus: cx.focus_handle().tab_stop(true),
             pi_provider_save_focus: cx.focus_handle().tab_stop(true),
@@ -1534,11 +1644,27 @@ impl AppState {
         // The pill is a separate GPUI window, so it does not inherit the
         // main window's globals. Keep an already-open pill synchronized with
         // both persisted appearance edits and AppKit accessibility events.
-        this._subscriptions
-            .push(cx.observe(&service, |_this, service, cx| {
+        this._subscriptions.push(
+            cx.observe_in(&service, window, |this, service, window, cx| {
                 let service = service.read(cx);
                 let appearance = service.appearance.clone();
                 let system_reduced = service.system_reduced_motion();
+                let snapshot = service.snapshot();
+                let readiness = if !snapshot.has_providers {
+                    Some("Select a provider and model to start chatting.")
+                } else if snapshot.selection.is_none() {
+                    Some("Pick a model below to start chatting.")
+                } else if !snapshot.has_key_for_selection {
+                    Some("The selected provider has no API key yet.")
+                } else {
+                    None
+                };
+                let placeholder = composer_placeholder(
+                    readiness.is_none(),
+                    readiness,
+                    !snapshot.messages.is_empty(),
+                    service.active_chat_id.as_deref().unwrap_or(""),
+                );
                 publish_pill_appearance(appearance.clone(), system_reduced);
                 let handle = match PILL_WINDOW.lock() {
                     Ok(guard) => *guard,
@@ -1550,7 +1676,12 @@ impl AppState {
                         view.set_system_reduced_motion(system_reduced, cx);
                     });
                 }
-            }));
+                this.composer_input.update(cx, |input, cx| {
+                    input.set_placeholder(placeholder, window, cx);
+                });
+                cx.notify();
+            }),
+        );
 
         cx.spawn(async move |this, cx| {
             let layout = cx
@@ -2971,7 +3102,7 @@ impl AppState {
         })
     }
 
-    fn enter_settings(
+    pub(crate) fn enter_settings(
         &mut self,
         section: Option<SettingsSection>,
         window: &mut Window,
@@ -3467,6 +3598,11 @@ impl AppState {
             SettingsServices::from_stores(&self.stores, shortcut_runtime, self.service.clone());
         let workspace = self.service.read(cx).workspace.clone();
         let entity = cx.new(|cx| SettingsView::new(cx, services, workspace));
+        self.settings_mcp_modal =
+            Some(cx.new(|_cx| crate::settings::mcp::McpModalLayer::new(entity.clone())));
+        self.settings_scheduled_modal = Some(
+            cx.new(|_cx| crate::settings::scheduled::ScheduledModalLayer::new(entity.clone())),
+        );
         self._subscriptions.push(cx.observe_in(
             &entity,
             window,
@@ -3493,10 +3629,215 @@ impl AppState {
                     this.computer_use_privacy.restore();
                     cx.notify();
                 }
+                SettingsEvent::OnboardingResetRequested => {
+                    this.confirm_onboarding_reset(window, cx);
+                }
             },
         ));
         self.settings = Some(entity.clone());
         entity
+    }
+
+    fn confirm_onboarding_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding_reset_confirm {
+            return;
+        }
+        self.onboarding_reset_confirm = true;
+        self.onboarding_reset_busy = false;
+        self.onboarding_reset_error = None;
+        self.onboarding_reset_return_focus = window.focused(cx);
+        self.onboarding_reset_cancel_focus.focus(window);
+        cx.notify();
+    }
+
+    fn start_onboarding_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding_reset_busy {
+            return;
+        }
+        let Some(settings) = self.settings.clone() else {
+            return;
+        };
+        self.onboarding_reset_busy = true;
+        self.onboarding_reset_error = None;
+        cx.notify();
+        let services = settings.read(cx).onboarding_reset_services();
+        let computer_use = self.stores.computer_use.clone();
+        let reset = Tokio::spawn(cx, async move {
+            computer_use
+                .shutdown()
+                .await
+                .map_err(|_| "Aiden couldn’t safely turn off Computer Use.".to_string())?;
+            services.reset_onboarding_data().await
+        });
+        cx.spawn_in(window, async move |this, cx| -> anyhow::Result<()> {
+            let result = reset
+                .await
+                .map_err(|_| "The onboarding reset was interrupted.".to_string())
+                .and_then(|result| result);
+            this.update_in(cx, |this, _window, cx| match result {
+                Ok(()) => {
+                    let relaunch = relaunch_current_application();
+                    if let Err(error) = relaunch {
+                        this.onboarding_reset_busy = false;
+                        this.onboarding_reset_error = Some(format!(
+                            "Aiden reset onboarding but couldn’t restart: {error}"
+                        ));
+                        this.stores.computer_use.resume_after_cancelled_shutdown();
+                        cx.notify();
+                        return;
+                    }
+                    this.onboarding_reset_confirm = false;
+                    this.finish_quit(cx);
+                }
+                Err(error) => {
+                    this.onboarding_reset_busy = false;
+                    this.onboarding_reset_error = Some(error);
+                    this.stores.computer_use.resume_after_cancelled_shutdown();
+                    cx.notify();
+                }
+            })?;
+            Ok(())
+        })
+        .detach();
+    }
+
+    fn close_onboarding_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding_reset_busy {
+            return;
+        }
+        self.onboarding_reset_confirm = false;
+        self.onboarding_reset_error = None;
+        if let Some(focus) = self.onboarding_reset_return_focus.take() {
+            focus.focus(window);
+        }
+        cx.notify();
+    }
+
+    fn onboarding_reset_modal(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let busy = self.onboarding_reset_busy;
+        let error = self.onboarding_reset_error.clone();
+        div()
+            .id("onboarding-reset-modal-layer")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation()
+            })
+            .on_click(cx.listener(move |this, _event, window, cx| {
+                cx.stop_propagation();
+                if !busy {
+                    this.close_onboarding_reset(window, cx);
+                }
+            }))
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key.as_str() == "escape" && !busy {
+                    this.close_onboarding_reset(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if event.keystroke.key.as_str() == "tab" {
+                    let focused = window.focused(cx);
+                    let backwards = event.keystroke.modifiers.shift;
+                    if backwards
+                        && focused.as_ref() == Some(&this.onboarding_reset_cancel_focus)
+                    {
+                        this.onboarding_reset_confirm_focus.focus(window);
+                    } else if !backwards
+                        && focused.as_ref() == Some(&this.onboarding_reset_confirm_focus)
+                    {
+                        this.onboarding_reset_cancel_focus.focus(window);
+                    } else if backwards {
+                        this.onboarding_reset_confirm_focus.focus(window);
+                    } else {
+                        this.onboarding_reset_cancel_focus.focus(window);
+                    }
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                v_flex()
+                    .id("onboarding-reset-confirm")
+                    .w(px(420.))
+                    .max_w(gpui::relative(0.92))
+                    .px_6()
+                    .py_5()
+                    .rounded(px(16.))
+                    .bg(theme.popover)
+                    .shadow_lg()
+                    .occlude()
+                    .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                        cx.stop_propagation()
+                    })
+                    .on_click(|_event, _window, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .text_size(px(18.))
+                            .line_height(px(24.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Reset onboarding and restart Aiden?"),
+                    )
+                    .child(
+                        v_flex()
+                            .mt_2()
+                            .gap_2()
+                            .text_size(px(crate::settings::SETTINGS_TEXT_PX))
+                            .text_color(theme.secondary_foreground)
+                            .child("This removes your profile, app preferences, custom provider and MCP setup, saved API keys and OAuth sessions, and cached benchmark data.")
+                            .child("Chats, projects, schedules, skills, and downloaded local models stay. Aiden will restart and reopen onboarding.")
+                            .when_some(error, |column, error| {
+                                column.child(div().text_color(theme.danger).child(error))
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .mt_5()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .track_focus(&self.onboarding_reset_cancel_focus)
+                                    .tab_stop(true)
+                                    .child(
+                                        Button::new("onboarding-reset-cancel")
+                                            .tab_stop(false)
+                                            .label("Cancel")
+                                            .disabled(busy)
+                                            .on_click(cx.listener(
+                                                |this, _event, window, cx| {
+                                                    this.close_onboarding_reset(window, cx);
+                                                },
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .track_focus(&self.onboarding_reset_confirm_focus)
+                                    .tab_stop(true)
+                                    .child(
+                                        Button::new("onboarding-reset-confirm-button")
+                                            .tab_stop(false)
+                                            .danger()
+                                            .label(if busy {
+                                                "Resetting…"
+                                            } else {
+                                                "Reset & restart"
+                                            })
+                                            .disabled(busy)
+                                            .on_click(cx.listener(
+                                                |this, _event, window, cx| {
+                                                    this.start_onboarding_reset(window, cx);
+                                                },
+                                            )),
+                                    ),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn scheduled_entity(
@@ -3735,6 +4076,15 @@ impl AppState {
                 .settings
                 .as_ref()
                 .is_some_and(|settings| settings.read(cx).provider_editor_modal_open())
+            || self
+                .settings
+                .as_ref()
+                .is_some_and(|settings| settings.read(cx).mcp_modal_open())
+            || self
+                .settings
+                .as_ref()
+                .is_some_and(|settings| settings.read(cx).scheduled_modal_open())
+            || self.onboarding_reset_confirm
             || self
                 .service
                 .read(cx)
@@ -5589,6 +5939,15 @@ impl Render for AppState {
             .clone()
             .filter(|settings| settings.read(cx).provider_editor_modal_open());
         let provider_editor_open = provider_editor.is_some();
+        let mcp_modal_open = self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.read(cx).mcp_modal_open());
+        let scheduled_modal_open = self
+            .settings
+            .as_ref()
+            .is_some_and(|settings| settings.read(cx).scheduled_modal_open());
+        let onboarding_reset_confirm = self.onboarding_reset_confirm;
         let app_key_context = if subagent_mcp_mutation_approval.is_some() {
             "SubagentMcpMutationApprovalModal"
         } else if subagent_mcp_read_approval.is_some() {
@@ -5605,6 +5964,12 @@ impl Render for AppState {
             "SettingsModal"
         } else if provider_editor_open {
             "SettingsProviderEditorModal"
+        } else if mcp_modal_open {
+            "SettingsMcpModal"
+        } else if scheduled_modal_open {
+            "SettingsScheduledModal"
+        } else if onboarding_reset_confirm {
+            "OnboardingResetModal"
         } else if environment_overlay || files_confirmation {
             "EnvironmentModal"
         } else {
@@ -6194,6 +6559,17 @@ impl Render for AppState {
                         &settings, cx,
                     ))
                 })
+            })
+            .when(mcp_modal_open, |el| {
+                el.when_some(self.settings_mcp_modal.clone(), |el, modal| el.child(modal))
+            })
+            .when(scheduled_modal_open, |el| {
+                el.when_some(self.settings_scheduled_modal.clone(), |el, modal| {
+                    el.child(modal)
+                })
+            })
+            .when(onboarding_reset_confirm, |el| {
+                el.child(self.onboarding_reset_modal(cx))
             })
             .when_some(computer_use_approval, |el, request| {
                 el.child(self.computer_use_approval_modal(request, computer_use_deciding, cx))
@@ -7152,6 +7528,14 @@ mod tests {
             Some(ComputerUseApprovalDecision::Deny)
         );
         assert_eq!(computer_use_escape_decision(true), None);
+    }
+
+    #[test]
+    fn sidebar_pointer_resize_preserves_the_saved_width_and_clamps() {
+        assert_eq!(pointer_resized_sidebar_width(272.0, 100.0, 100.0), 272.0);
+        assert_eq!(pointer_resized_sidebar_width(272.0, 100.0, 132.0), 304.0);
+        assert_eq!(pointer_resized_sidebar_width(272.0, 100.0, 0.0), 236.0);
+        assert_eq!(pointer_resized_sidebar_width(272.0, 100.0, 500.0), 340.0);
     }
 
     #[test]

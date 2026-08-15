@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use aiden_data::portable_config::McpServer;
 use gpui::{
-    div, prelude::FluentBuilder as _, AppContext as _, Context, ElementId, Entity, Focusable as _,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    div, img, prelude::FluentBuilder as _, AnyElement, AppContext as _, Context, ElementId, Entity,
+    Focusable as _, FontWeight, Image, ImageFormat, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -23,13 +23,18 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement as _,
     select::{Select, SelectEvent, SelectItem, SelectState},
-    spinner::Spinner,
-    switch::Switch,
-    v_flex, ActiveTheme, Disableable as _, IconName, Sizable as _,
+    v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
 };
+
+use crate::controls::Switch;
 use gpui_tokio_bridge::Tokio;
 
 use super::{SettingsServices, SettingsView};
+
+const NOTION_DARK_PNG: &[u8] =
+    include_bytes!("../../../../renderer/assets/native-icons/mcp/notion-dark.png");
+const NOTION_LIGHT_PNG: &[u8] =
+    include_bytes!("../../../../renderer/assets/native-icons/mcp/notion-light.png");
 
 /// A server as listed, owned for rendering. The full portable record is kept
 /// so toggles/tests rebuild the exact stored connection (headers, URLs, etc.)
@@ -45,6 +50,7 @@ pub struct McpServerRow {
     #[allow(dead_code)] // kept for round-trip fidelity; the row UI shows command + args
     pub env: BTreeMap<String, String>,
     pub url: Option<String>,
+    #[allow(dead_code)] // retained in the row snapshot for complete portable-record parity
     pub oauth: bool,
     pub preset_id: Option<String>,
     pub enabled: bool,
@@ -75,8 +81,11 @@ impl From<&McpServer> for McpServerRow {
 /// Per-server test-connection status.
 #[derive(Debug, Clone, Default)]
 pub struct McpTestStatus {
+    #[allow(dead_code)] // retained as evidence for the modal save-and-test lifecycle
     pub connected: bool,
+    #[allow(dead_code)] // retained as evidence for the modal save-and-test lifecycle
     pub tool_count: usize,
+    #[allow(dead_code)] // retained as evidence for the modal save-and-test lifecycle
     pub error: Option<String>,
 }
 
@@ -103,6 +112,22 @@ impl SelectItem for TransportItem {
     fn value(&self) -> &Self::Value {
         &self.value
     }
+}
+
+fn mcp_preset_badge(
+    configured: bool,
+    preset: &aiden_mcp::McpPreset,
+    preset_badges: &BTreeMap<String, String>,
+) -> Option<String> {
+    configured.then(|| {
+        preset_badges
+            .get(preset.id)
+            .cloned()
+            .unwrap_or_else(|| match preset.auth {
+                aiden_mcp::McpPresetAuth::ApiKey { .. } => "Needs key".into(),
+                aiden_mcp::McpPresetAuth::OAuth => "Needs sign-in".into(),
+            })
+    })
 }
 
 /// Inline add-server draft (input entities created when the form opens).
@@ -141,6 +166,9 @@ pub struct McpState {
     /// Fences connection-test results across edits, removal, and reset.
     pub connection_revision: u64,
     pub statuses_loaded: bool,
+    /// One-shot dev-only visual-QA route hook. It never changes production
+    /// startup because both AIDEN_DEV and the explicit modal id are required.
+    forced_modal_applied: bool,
     pub oauth_revision: Arc<AtomicU64>,
     pub error: Option<String>,
     return_focus: Option<gpui::FocusHandle>,
@@ -148,6 +176,32 @@ pub struct McpState {
     modal_first_focus: Option<gpui::FocusHandle>,
     modal_last_focus: Option<gpui::FocusHandle>,
     _subscriptions: Vec<gpui::Subscription>,
+}
+
+/// Viewport-level host for the MCP dialog. Rendering through the retained
+/// SettingsView context keeps its existing listeners and focus handles while
+/// placing the resulting absolute layer beside the other root dialogs.
+pub(crate) struct McpModalLayer {
+    settings: Entity<SettingsView>,
+}
+
+impl McpModalLayer {
+    pub(crate) fn new(settings: Entity<SettingsView>) -> Self {
+        Self { settings }
+    }
+}
+
+impl Render for McpModalLayer {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings = self.settings.clone();
+        settings.update(cx, |settings, cx| {
+            settings
+                .mcp
+                .modal
+                .map(|modal| settings.mcp_modal(modal, cx).into_any_element())
+                .unwrap_or_else(|| div().into_any_element())
+        })
+    }
 }
 
 /// Parse `KEY=VALUE` lines (the TS `linesToRecord`).
@@ -196,11 +250,160 @@ fn custom_oauth_actions_visible(
 }
 
 fn mcp_gallery_columns(viewport_width: f32) -> usize {
-    if viewport_width >= 880.0 {
+    // Tailwind's source `xl:grid-cols-2` breakpoint is 80rem at the default
+    // 16 px root size.
+    if viewport_width >= 1280.0 {
         2
     } else {
         1
     }
+}
+
+fn mcp_preset_icon_path(preset_id: &str) -> Option<&'static str> {
+    match preset_id {
+        "composio" => Some("native-icons/mcp/composio.svg"),
+        "notion" => Some("native-icons/mcp/notion.svg"),
+        "linear" => Some("native-icons/mcp/linear.svg"),
+        _ => None,
+    }
+}
+
+fn mcp_preset_icon_element(
+    preset_id: &str,
+    size: f32,
+    theme: &gpui_component::Theme,
+) -> Option<AnyElement> {
+    if preset_id == "notion" {
+        let bytes = if theme.is_dark() {
+            NOTION_DARK_PNG
+        } else {
+            NOTION_LIGHT_PNG
+        };
+        return Some(
+            img(Arc::new(Image::from_bytes(
+                ImageFormat::Png,
+                bytes.to_vec(),
+            )))
+            .size(gpui::px(size))
+            .into_any_element(),
+        );
+    }
+    mcp_preset_icon_path(preset_id).map(|path| {
+        Icon::default()
+            .path(path)
+            .size(gpui::px(size))
+            .text_color(theme.foreground)
+            .into_any_element()
+    })
+}
+
+fn mcp_dialog_field(
+    id: &'static str,
+    label: &'static str,
+    description: impl Into<SharedString>,
+    control: impl IntoElement,
+    separator: bool,
+    theme: &gpui_component::Theme,
+) -> AnyElement {
+    let description = description.into();
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .child(
+            h_flex()
+                .w_full()
+                .min_h(gpui::px(48.))
+                .items_center()
+                .gap_5()
+                .p_4()
+                .child(
+                    v_flex()
+                        .w(gpui::relative(0.4))
+                        .min_w(gpui::px(0.))
+                        .child(
+                            div()
+                                .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label),
+                        )
+                        .when(!description.is_empty(), |column| {
+                            column.child(
+                                div()
+                                    .mt(gpui::px(2.))
+                                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                    .text_color(theme.secondary_foreground)
+                                    .child(description),
+                            )
+                        }),
+                )
+                .child(div().flex_1().min_w(gpui::px(0.)).child(control)),
+        )
+        .when(separator, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .left_4()
+                    .right_4()
+                    .bottom_0()
+                    .h(gpui::px(1.))
+                    .bg(theme.border),
+            )
+        })
+        .into_any_element()
+}
+
+fn mcp_dialog_vertical_field(
+    id: &'static str,
+    label: &'static str,
+    description: impl Into<SharedString>,
+    control: AnyElement,
+    separator: bool,
+    theme: &gpui_component::Theme,
+) -> AnyElement {
+    let description = description.into();
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .child(
+            v_flex()
+                .w_full()
+                .gap_3()
+                .p_4()
+                .child(
+                    v_flex()
+                        .min_w(gpui::px(0.))
+                        .child(
+                            div()
+                                .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label),
+                        )
+                        .when(!description.is_empty(), |column| {
+                            column.child(
+                                div()
+                                    .mt(gpui::px(2.))
+                                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                    .text_color(theme.secondary_foreground)
+                                    .child(description),
+                            )
+                        }),
+                )
+                .child(control),
+        )
+        .when(separator, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .left_4()
+                    .right_4()
+                    .bottom_0()
+                    .h(gpui::px(1.))
+                    .bg(theme.border),
+            )
+        })
+        .into_any_element()
 }
 
 fn connection_result_is_current(current: u64, expected: u64) -> bool {
@@ -217,12 +420,29 @@ fn preset_key_removal_is_current(
 }
 
 impl SettingsView {
+    pub(crate) fn mcp_modal_open(&self) -> bool {
+        self.mcp.modal.is_some()
+    }
+
     /// The MCP section: server list + toggles + add form.
     pub(crate) fn mcp_section(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        if !self.mcp.forced_modal_applied {
+            self.mcp.forced_modal_applied = true;
+            let dev = std::env::var("AIDEN_DEV")
+                .ok()
+                .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE"));
+            if dev {
+                if let Ok(preset_id) = std::env::var("AIDEN_FORCE_MCP_MODAL") {
+                    if let Some(preset) = aiden_mcp::get_mcp_preset(preset_id.trim()) {
+                        self.mcp.open_preset(preset.id, window, cx);
+                    }
+                }
+            }
+        }
         if !self.mcp.statuses_loaded {
             self.mcp.statuses_loaded = true;
             self.mcp.refresh_credential_statuses(&self.services, cx);
@@ -235,7 +455,7 @@ impl SettingsView {
         v_flex()
             .id("mcp-section")
             .w_full()
-            .gap_4()
+            .gap_6()
             .child(
                 h_flex()
                     .w_full()
@@ -245,15 +465,17 @@ impl SettingsView {
                     .child(
                         v_flex()
                             .flex_1()
+                            .min_w(gpui::px(0.))
                             .child(
                                 div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("MCP servers"),
+                                    .text_size(gpui::px(14.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("MCP Servers"),
                             )
                             .child(
                                 div()
                                     .text_sm()
+                                    .whitespace_normal()
                                     .text_color(theme.muted_foreground)
                                     .mt_0p5()
                                     .child(
@@ -262,15 +484,16 @@ impl SettingsView {
                                 ),
                             ),
                     )
-                    .child(
+                    .child(div().flex_shrink_0().child(
                         Button::new("reset-mcp-connections")
                             .small()
                             .ghost()
+                            .icon(Icon::default().path("native-icons/refresh-cw.svg"))
                             .label("Reset connections")
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.mcp.reset_connections(&this.services, cx);
                             })),
-                    ),
+                    )),
             )
             .when_some(state.error.clone(), |el, message| {
                 el.child(
@@ -285,18 +508,20 @@ impl SettingsView {
                         .child(message),
                 )
             })
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("Configured MCP servers · {}", state.servers.len())),
-                    )
-                    .child(self.mcp_card(cx)),
-            )
+            .when(!state.servers.is_empty(), |view| {
+                view.child(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(format!("Configured MCP servers · {}", state.servers.len())),
+                        )
+                        .child(self.mcp_card(cx)),
+                )
+            })
             .child(self.mcp_preset_gallery(two_columns, cx))
             .child(
                 h_flex()
@@ -304,15 +529,25 @@ impl SettingsView {
                     .items_center()
                     .justify_between()
                     .gap_4()
-                    .rounded_lg()
+                    .rounded(gpui::px(12.))
                     .border_1()
                     .border_color(theme.border)
                     .px_4()
                     .py_3()
                     .child(
                         v_flex()
-                            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Manual MCP server setup"))
-                            .child(div().text_xs().text_color(theme.muted_foreground).child("Add a local command, streamable HTTP server, or legacy MCP SSE endpoint.")),
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Manual MCP server setup"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child("Add a local command or remote MCP server."),
+                            ),
                     )
                     .child(
                         Button::new("add-mcp-server")
@@ -324,9 +559,6 @@ impl SettingsView {
                             })),
                     ),
             )
-            .when_some(state.modal, |el, modal| {
-                el.child(self.mcp_modal(modal, cx))
-            })
     }
 
     /// The server list card (empty state or rows).
@@ -350,7 +582,7 @@ impl SettingsView {
         }
         v_flex()
             .w_full()
-            .rounded_lg()
+            .rounded(gpui::px(12.))
             .border_1()
             .border_color(border)
             .children(servers.iter().enumerate().map(|(index, row)| {
@@ -365,6 +597,7 @@ impl SettingsView {
 
     fn mcp_row(&self, row: &McpServerRow, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let well = crate::services::appearance::well_surface(cx);
         let id = row.id.clone();
         let name = row.name.clone();
         let transport = row.transport.clone();
@@ -381,18 +614,36 @@ impl SettingsView {
             row.url.clone().unwrap_or_else(|| "No URL".to_string())
         };
         let enabled = row.enabled;
-        let oauth = row.oauth;
-        let is_testing = self.mcp.testing.as_deref() == Some(id.as_str());
-        let status = self.mcp.statuses.get(&id).cloned().unwrap_or_default();
         let preset = row.preset_id.is_some();
+        let preset_icon = row.preset_id.as_deref().and_then(mcp_preset_icon_path);
 
         h_flex()
             .id(ElementId::Name(SharedString::from(format!("mcp-row-{id}"))))
             .w_full()
-            .px_3()
-            .py_2p5()
+            .px_3p5()
+            .py_3()
             .gap_3()
             .items_center()
+            .when_some(preset_icon, |view, icon_path| {
+                view.child(
+                    div()
+                        .size(gpui::px(32.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(well)
+                        .child(
+                            Icon::default()
+                                .path(icon_path)
+                                .size(gpui::px(16.))
+                                .text_color(theme.foreground),
+                        ),
+                )
+            })
             .child(
                 v_flex()
                     .flex_1()
@@ -433,18 +684,6 @@ impl SettingsView {
                                         .text_color(theme.info)
                                         .child("built-in"),
                                 )
-                            })
-                            .when(oauth, |el| {
-                                el.child(
-                                    div()
-                                        .px_1p5()
-                                        .py_0p5()
-                                        .rounded_md()
-                                        .bg(theme.muted)
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child("OAuth"),
-                                )
                             }),
                     )
                     .child(
@@ -453,26 +692,6 @@ impl SettingsView {
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(subtitle),
-                    )
-                    .when_some(status.error, |el, error| {
-                        el.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.danger)
-                                .mt_0p5()
-                                .child(error),
-                        )
-                    })
-                    .when_some(
-                        status.connected.then_some(status.tool_count),
-                        |el, tools| {
-                            el.child(div().text_xs().text_color(theme.success).mt_0p5().child(
-                                format!(
-                                    "Connected — {tools} tool{} available.",
-                                    if tools == 1 { "" } else { "s" }
-                                ),
-                            ))
-                        },
                     ),
             )
             .child({
@@ -488,24 +707,10 @@ impl SettingsView {
             })
             .child({
                 let click_id = id.clone();
-                Button::new(ElementId::Name(SharedString::from(format!(
-                    "mcp-test-{id}"
-                ))))
-                .small()
-                .ghost()
-                .label(if is_testing { "Connecting…" } else { "Test" })
-                .disabled(is_testing)
-                .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.mcp.test_server(&click_id, &this.services, cx);
-                }))
-            })
-            .child({
-                let click_id = id.clone();
                 Switch::new(ElementId::Name(SharedString::from(format!(
                     "mcp-enabled-{id}"
                 ))))
                 .checked(enabled)
-                .label(if enabled { "Enabled" } else { "Disabled" })
                 .on_click(cx.listener(move |this, checked, _window, cx| {
                     this.mcp
                         .toggle_server(&click_id, *checked, &this.services, cx);
@@ -531,14 +736,6 @@ impl SettingsView {
                     cx.notify();
                 }))
             })
-            .child(if is_testing {
-                Spinner::new()
-                    .small()
-                    .color(theme.accent)
-                    .into_any_element()
-            } else {
-                div().into_any_element()
-            })
     }
 
     fn mcp_preset_gallery(&self, two_columns: bool, cx: &mut Context<Self>) -> impl IntoElement {
@@ -558,105 +755,150 @@ impl SettingsView {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child("Hand-picked hosted servers with explicit credential setup."),
+                            .child("Hand-picked MCP servers with a simple setup."),
                     ),
+            )
+            .child(if two_columns {
+                v_flex()
+                    .w_full()
+                    .gap_3()
+                    .child(
+                        div().flex().flex_row().w_full().gap_3().children(
+                            aiden_mcp::MCP_PRESETS[..2]
+                                .iter()
+                                .map(|preset| self.mcp_preset_card(preset, cx)),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .w_full()
+                            .gap_3()
+                            .children(
+                                aiden_mcp::MCP_PRESETS[2..]
+                                    .iter()
+                                    .map(|preset| self.mcp_preset_card(preset, cx)),
+                            )
+                            .child(div().flex_1().min_w(gpui::px(0.))),
+                    )
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .w_full()
+                    .gap_3()
+                    .children(
+                        aiden_mcp::MCP_PRESETS
+                            .iter()
+                            .map(|preset| self.mcp_preset_card(preset, cx)),
+                    )
+                    .into_any_element()
+            })
+    }
+
+    fn mcp_preset_card(&self, preset: &aiden_mcp::McpPreset, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let well = crate::services::appearance::well_surface(cx);
+        let configured = self
+            .mcp
+            .servers
+            .iter()
+            .any(|row| row.preset_id.as_deref() == Some(preset.id));
+        // Electron only shows a connection badge after a preset has been
+        // configured. An untouched gallery card has just the setup action.
+        let badge = mcp_preset_badge(configured, preset, &self.mcp.preset_badges);
+        let preset_id = preset.id;
+        // resvg currently paints Notion's compound filled path with the wrong
+        // winding/color. These two rasters are generated directly from the
+        // Electron source SVG and preserve the exact logo in both schemes.
+        let icon = mcp_preset_icon_element(preset_id, 20., theme);
+
+        v_flex()
+            .id(ElementId::Name(format!("mcp-preset-{preset_id}").into()))
+            .flex_1()
+            .min_w(gpui::px(0.))
+            .gap_2()
+            .p_4()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                div()
+                    .size(gpui::px(36.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(well)
+                    .when_some(icon, |view, icon| view.child(icon)),
             )
             .child(
                 div()
-                    .flex()
-                    .when(two_columns, |el| el.flex_row())
-                    .when(!two_columns, |el| el.flex_col())
-                    .gap_3()
-                    .children(aiden_mcp::MCP_PRESETS.iter().map(|preset| {
-                        let configured = self
-                            .mcp
-                            .servers
-                            .iter()
-                            .any(|row| row.preset_id.as_deref() == Some(preset.id));
-                        let badge = self
-                            .mcp
-                            .preset_badges
-                            .get(preset.id)
-                            .cloned()
-                            .unwrap_or_else(|| match preset.auth {
-                                aiden_mcp::McpPresetAuth::ApiKey { .. } => "Needs key".into(),
-                                aiden_mcp::McpPresetAuth::OAuth => "Needs sign-in".into(),
-                            });
-                        let preset_id = preset.id;
-                        v_flex()
-                            .id(ElementId::Name(format!("mcp-preset-{preset_id}").into()))
-                            .flex_1()
-                            .min_w(gpui::px(0.))
-                            .gap_2()
-                            .p_4()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(theme.border)
-                            .child(
-                                h_flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child(preset.name),
-                                    )
-                                    .child(
-                                        div()
-                                            .px_2()
-                                            .py_0p5()
-                                            .rounded_md()
-                                            .bg(if badge == "Ready" {
-                                                theme.success.opacity(0.14)
-                                            } else {
-                                                theme.muted
-                                            })
-                                            .text_xs()
-                                            .text_color(if badge == "Ready" {
-                                                theme.success
-                                            } else {
-                                                theme.muted_foreground
-                                            })
-                                            .child(badge),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(preset.tagline),
-                            )
-                            .child(
-                                h_flex()
-                                    .mt_1()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child(preset.vendor),
-                                    )
-                                    .child(
-                                        Button::new(ElementId::Name(
-                                            format!("mcp-preset-setup-{preset_id}").into(),
-                                        ))
-                                        .small()
-                                        .label(if configured { "Manage" } else { "Set Up" })
-                                        .on_click(
-                                            cx.listener(move |this, _event, window, cx| {
-                                                this.mcp.open_preset(preset_id, window, cx);
-                                            }),
-                                        ),
-                                    ),
-                            )
-                    })),
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(preset.name),
             )
+            .child(
+                div()
+                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child(preset.tagline),
+            )
+            .child(
+                h_flex()
+                    .mt_1()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_color(theme.muted_foreground)
+                            .child(preset.vendor),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .when_some(badge, |actions, badge| {
+                                actions.child(
+                                    div()
+                                        .px_2()
+                                        .py_0p5()
+                                        .rounded_md()
+                                        .bg(if badge == "Ready" {
+                                            theme.success.opacity(0.14)
+                                        } else {
+                                            theme.muted
+                                        })
+                                        .text_xs()
+                                        .text_color(if badge == "Ready" {
+                                            theme.success
+                                        } else {
+                                            theme.muted_foreground
+                                        })
+                                        .child(badge),
+                                )
+                            })
+                            .child(
+                                Button::new(ElementId::Name(
+                                    format!("mcp-preset-setup-{preset_id}").into(),
+                                ))
+                                .small()
+                                .label(if configured { "Manage" } else { "Set Up" })
+                                .on_click(cx.listener(
+                                    move |this, _event, window, cx| {
+                                        this.mcp.open_preset(preset_id, window, cx);
+                                    },
+                                )),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn mcp_modal(&self, modal: McpModal, cx: &mut Context<Self>) -> impl IntoElement {
-        let modal_background = cx.theme().background.opacity(0.74);
         let busy = self.mcp.removing_busy
             || self
                 .mcp
@@ -679,7 +921,7 @@ impl SettingsView {
                 .mcp
                 .adding
                 .as_ref()
-                .map(|draft| self.mcp_editor(draft, cx).into_any_element()),
+                .map(|draft| self.mcp_editor_parity(draft, cx).into_any_element()),
             McpModal::RemoveConfirm => self
                 .mcp
                 .removing
@@ -693,7 +935,6 @@ impl SettingsView {
             .flex()
             .items_center()
             .justify_center()
-            .bg(modal_background)
             .p_6()
             .occlude()
             .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
@@ -747,7 +988,8 @@ impl SettingsView {
     }
 
     /// The add-stdio-server form.
-    fn mcp_editor(&self, draft: &McpDraft, cx: &mut Context<Self>) -> impl IntoElement {
+    #[allow(dead_code)]
+    fn mcp_editor_legacy(&self, draft: &McpDraft, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let name_value = draft.name.read(cx).value().to_string();
         let command_value = draft.command.read(cx).value().to_string();
@@ -781,7 +1023,7 @@ impl SettingsView {
             .max_h(gpui::relative(0.9))
             .overflow_y_scrollbar()
             .gap_3()
-            .rounded_lg()
+            .rounded(gpui::px(12.))
             .border_1()
             .border_color(theme.border)
             .bg(theme.background)
@@ -1041,6 +1283,472 @@ impl SettingsView {
             )
     }
 
+    /// Electron-parity MCP editor. The retained state/actions are shared with
+    /// the legacy implementation above; this surface mirrors Dialog + FieldSet
+    /// + Field from the TypeScript source.
+    fn mcp_editor_parity(&self, draft: &McpDraft, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let well = crate::services::appearance::well_surface(cx);
+        let name_value = draft.name.read(cx).value().to_string();
+        let command_value = draft.command.read(cx).value().to_string();
+        let url_value = draft.url.read(cx).value().to_string();
+        let remote = draft.transport != aiden_data::portable_config::McpTransport::Stdio;
+        let endpoint_ready = !name_value.trim().is_empty()
+            && if remote {
+                !url_value.trim().is_empty()
+            } else {
+                !command_value.trim().is_empty()
+            };
+        let preset = draft
+            .preset_id
+            .as_deref()
+            .and_then(aiden_mcp::get_mcp_preset);
+        let stored_credential_ready = preset.is_some_and(|preset| {
+            self.mcp
+                .preset_badges
+                .get(preset.id)
+                .is_some_and(|badge| badge == "Ready")
+        });
+        let credential_ready = match preset.map(|preset| preset.auth) {
+            Some(aiden_mcp::McpPresetAuth::ApiKey { .. }) => {
+                stored_credential_ready || !draft.preset_key.read(cx).value().trim().is_empty()
+            }
+            Some(aiden_mcp::McpPresetAuth::OAuth) => stored_credential_ready,
+            None => true,
+        };
+        let can_confirm = endpoint_ready && credential_ready;
+        let busy = draft.saving || draft.authorizing || draft.revoking || draft.preset_key_removing;
+
+        let title: AnyElement = if let Some(preset) = preset {
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .size(gpui::px(28.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(well)
+                        .when_some(
+                            mcp_preset_icon_element(preset.id, 14., theme),
+                            |tile, icon| tile.child(icon),
+                        ),
+                )
+                .child(if draft.editing {
+                    format!("Manage {}", preset.name)
+                } else {
+                    format!("Set up {}", preset.name)
+                })
+                .into_any_element()
+        } else {
+            div()
+                .child(if draft.editing {
+                    format!("Edit {}", name_value.trim())
+                } else {
+                    "Add MCP server".into()
+                })
+                .into_any_element()
+        };
+        let description: SharedString = preset
+            .map(|preset| preset.tagline.into())
+            .unwrap_or_else(|| "Configure how Aiden connects to this tool server.".into());
+
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if preset.is_some() && draft.editing {
+            rows.push(mcp_dialog_field(
+                "mcp-preset-status",
+                "Status",
+                if draft.enabled {
+                    "Tools from this server are available to the assistant."
+                } else {
+                    "Disabled — the assistant cannot use this server."
+                },
+                Switch::new("mcp-editor-enabled")
+                    .checked(draft.enabled)
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, checked, _window, cx| {
+                        if let Some(draft) = this.mcp.adding.as_mut() {
+                            draft.enabled = *checked;
+                        }
+                        cx.notify();
+                    })),
+                true,
+                theme,
+            ));
+        }
+        rows.push(mcp_dialog_field(
+            "mcp-dialog-name",
+            "Name",
+            "",
+            Input::new(&draft.name).w_full().small().disabled(busy),
+            true,
+            theme,
+        ));
+        if preset.is_none() {
+            rows.push(mcp_dialog_field(
+                "mcp-dialog-connection",
+                "Connection",
+                "",
+                Select::new(&draft.transport_select)
+                    .w_full()
+                    .small()
+                    .disabled(
+                        busy || draft.transport == aiden_data::portable_config::McpTransport::Sse,
+                    ),
+                true,
+                theme,
+            ));
+        }
+
+        if !remote {
+            rows.push(mcp_dialog_field(
+                "mcp-dialog-command",
+                "Command",
+                "",
+                Input::new(&draft.command).w_full().small().disabled(busy),
+                true,
+                theme,
+            ));
+            rows.push(mcp_dialog_field(
+                "mcp-dialog-args",
+                "Arguments",
+                "Space-separated arguments passed to the command.",
+                Input::new(&draft.args).w_full().small().disabled(busy),
+                true,
+                theme,
+            ));
+            rows.push(mcp_dialog_vertical_field(
+                "mcp-dialog-env",
+                "Environment",
+                "One KEY=VALUE per line. Values are stored in the app configuration on this Mac.",
+                Input::new(&draft.env)
+                    .w_full()
+                    .small()
+                    .disabled(busy)
+                    .into_any_element(),
+                true,
+                theme,
+            ));
+        } else {
+            rows.push(mcp_dialog_field(
+                "mcp-dialog-url",
+                if preset.is_some() {
+                    "Server address"
+                } else {
+                    "Server URL"
+                },
+                if preset.is_some() {
+                    "The URL where this MCP server is available."
+                } else {
+                    ""
+                },
+                Input::new(&draft.url).w_full().small().disabled(busy),
+                true,
+                theme,
+            ));
+            if preset.is_none() {
+                rows.push(mcp_dialog_vertical_field(
+                    "mcp-dialog-headers",
+                    "Headers",
+                    "One KEY=VALUE per line. Values are stored in the app configuration on this Mac.",
+                    Input::new(&draft.headers)
+                        .w_full()
+                        .small()
+                        .disabled(busy)
+                        .into_any_element(),
+                    true,
+                    theme,
+                ));
+                rows.push(mcp_dialog_field(
+                    "mcp-dialog-oauth",
+                    "OAuth sign-in",
+                    "For hosted servers that require browser authorization instead of (or with) a key.",
+                    Switch::new("mcp-editor-oauth")
+                        .checked(draft.oauth)
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, checked, _window, cx| {
+                            if let Some(draft) = this.mcp.adding.as_mut() {
+                                draft.oauth = *checked;
+                            }
+                            cx.notify();
+                        })),
+                    true,
+                    theme,
+                ));
+                if draft.oauth {
+                    rows.push(mcp_dialog_field(
+                        "mcp-dialog-authorize",
+                        "Authorize",
+                        "Opens your browser to sign in.",
+                        Button::new("mcp-custom-authorize")
+                            .small()
+                            .label(if draft.authorizing {
+                                "Waiting for browser…"
+                            } else {
+                                "Authorize"
+                            })
+                            .disabled(busy || !endpoint_ready)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.mcp.authorize_draft(&this.services, cx);
+                            })),
+                        true,
+                        theme,
+                    ));
+                }
+            }
+        }
+
+        if let Some(preset) = preset {
+            match preset.auth {
+                aiden_mcp::McpPresetAuth::ApiKey {
+                    key_label,
+                    key_help_url,
+                    ..
+                } => {
+                    let preset_name = preset.name;
+                    rows.push(mcp_dialog_field(
+                        "mcp-dialog-preset-key",
+                        key_label,
+                        if stored_credential_ready {
+                            "Saved encrypted in the macOS keychain. Paste a new key to replace it."
+                        } else {
+                            "Stored encrypted in the macOS keychain — never written to the app configuration."
+                        },
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .child(
+                                Input::new(&draft.preset_key)
+                                    .w_full()
+                                    .small()
+                                    .mask_toggle()
+                                    .disabled(busy),
+                            )
+                            .child(
+                                Button::new("mcp-key-help")
+                                    .link()
+                                    .small()
+                                    .label(format!("Get a key from {preset_name}"))
+                                    .on_click(move |_, _, cx| cx.open_url(key_help_url)),
+                            )
+                            .when(stored_credential_ready, |actions| {
+                                actions.child(
+                                    Button::new("mcp-key-remove")
+                                        .small()
+                                        .ghost()
+                                        .label(if draft.preset_key_removing {
+                                            "Removing…"
+                                        } else {
+                                            "Remove saved key"
+                                        })
+                                        .disabled(busy)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.mcp.clear_draft_preset_key(&this.services, cx);
+                                        })),
+                                )
+                            }),
+                        true,
+                        theme,
+                    ));
+                }
+                aiden_mcp::McpPresetAuth::OAuth => {
+                    rows.push(mcp_dialog_field(
+                        "mcp-dialog-preset-auth",
+                        "Authentication",
+                        if stored_credential_ready {
+                            "Signed in. Re-run to refresh access."
+                        } else {
+                            "Opens your browser to sign in."
+                        },
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("mcp-authorize")
+                                    .small()
+                                    .label(if draft.authorizing {
+                                        "Waiting for browser…"
+                                    } else if stored_credential_ready {
+                                        "Re-authorize"
+                                    } else {
+                                        "Authorize"
+                                    })
+                                    .disabled(busy || !endpoint_ready)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.mcp.authorize_draft(&this.services, cx);
+                                    })),
+                            )
+                            .when(stored_credential_ready, |actions| {
+                                actions.child(
+                                    div()
+                                        .px_2()
+                                        .h(gpui::px(24.))
+                                        .rounded_full()
+                                        .flex()
+                                        .items_center()
+                                        .bg(theme.success.opacity(0.1))
+                                        .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                        .text_color(theme.success)
+                                        .child("Authorized"),
+                                )
+                            }),
+                        true,
+                        theme,
+                    ));
+                }
+            }
+        }
+
+        rows.push(mcp_dialog_field(
+            "mcp-dialog-test",
+            "Test",
+            "",
+            h_flex()
+                .gap_2()
+                .child(
+                    Button::new("test-mcp-draft")
+                        .small()
+                        .label(if draft.saving {
+                            "Connecting…"
+                        } else {
+                            "Test connection"
+                        })
+                        .disabled(
+                            !endpoint_ready
+                                || !credential_ready
+                                || busy
+                                || draft.transport
+                                    == aiden_data::portable_config::McpTransport::Sse,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.mcp.save_and_test_draft(&this.services, cx);
+                        })),
+                )
+                .when(credential_ready && preset.is_some(), |status| {
+                    status.child(
+                        div()
+                            .px_2()
+                            .h(gpui::px(24.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .bg(theme.success.opacity(0.1))
+                            .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_color(theme.success)
+                            .child("Ready"),
+                    )
+                }),
+            false,
+            theme,
+        ));
+
+        v_flex()
+            .id("mcp-editor")
+            .w(gpui::px(680.))
+            .max_w(gpui::relative(0.92))
+            .max_h(gpui::relative(0.85))
+            .rounded(gpui::px(16.))
+            .bg(theme.popover)
+            .shadow_lg()
+            .occlude()
+            .px_6()
+            .py_5()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(gpui::px(18.))
+                    .line_height(gpui::px(24.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .mt(gpui::px(6.))
+                    .flex_shrink_0()
+                    .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child(description),
+            )
+            .child(
+                v_flex()
+                    .mt_4()
+                    .min_h(gpui::px(0.))
+                    .overflow_y_scrollbar()
+                    .px_0p5()
+                    .when_some(self.mcp.error.clone(), |content, error| {
+                        content.child(
+                            div()
+                                .mb_3()
+                                .rounded_md()
+                                .bg(theme.danger.opacity(0.12))
+                                .px_3()
+                                .py_2()
+                                .text_sm()
+                                .text_color(theme.danger)
+                                .child(error),
+                        )
+                    })
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .mb_7()
+                            .overflow_hidden()
+                            .rounded(gpui::px(12.))
+                            .bg(well)
+                            .children(rows),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .mt_5()
+                    .flex_shrink_0()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .when_some(self.mcp.modal_first_focus.clone(), |el, focus| {
+                                el.track_focus(&focus).tab_stop(true)
+                            })
+                            .child(
+                                Button::new("cancel-mcp-edit")
+                                    .tab_stop(false)
+                                    .label("Cancel")
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        this.mcp.close_modal(window);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .when_some(self.mcp.modal_last_focus.clone(), |el, focus| {
+                                el.track_focus(&focus).tab_stop(true)
+                            })
+                            .child(
+                                Button::new("save-mcp-server")
+                                    .primary()
+                                    .tab_stop(false)
+                                    .label(if draft.saving {
+                                        "Saving…"
+                                    } else if preset.is_some() && !draft.editing {
+                                        "Connect"
+                                    } else {
+                                        "Save"
+                                    })
+                                    .disabled(!can_confirm || busy)
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        this.mcp.save_draft(&this.services, window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
     /// Inline delete-confirmation card.
     fn mcp_remove_confirm(&self, removing: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -1054,20 +1762,33 @@ impl SettingsView {
             .unwrap_or_else(|| "this server".to_string());
         v_flex()
             .id("mcp-remove-confirm")
-            .gap_3()
-            .px_4()
-            .py_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.danger.opacity(0.5))
-            .child(div().text_sm().child(format!(
-                "Remove “{label}”? It will be disconnected and removed."
-            )))
+            .w(gpui::px(420.))
+            .max_w(gpui::relative(0.92))
+            .px_6()
+            .py_5()
+            .rounded(gpui::px(16.))
+            .bg(theme.popover)
+            .shadow_lg()
+            .child(
+                div()
+                    .text_size(gpui::px(18.))
+                    .line_height(gpui::px(24.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Remove this MCP server?"),
+            )
+            .child(
+                div()
+                    .mt_2()
+                    .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child(format!("“{label}” will be disconnected and removed.")),
+            )
             .when_some(self.mcp.error.clone(), |el, error| {
                 el.child(div().text_sm().text_color(theme.danger).child(error))
             })
             .child(
                 h_flex()
+                    .mt_5()
                     .justify_end()
                     .gap_2()
                     .child(
@@ -1077,8 +1798,6 @@ impl SettingsView {
                             })
                             .child(
                                 Button::new("cancel-mcp-remove")
-                                    .small()
-                                    .ghost()
                                     .tab_stop(false)
                                     .label("Cancel")
                                     .disabled(self.mcp.removing_busy)
@@ -1095,7 +1814,6 @@ impl SettingsView {
                             })
                             .child(
                                 Button::new("confirm-mcp-remove")
-                                    .small()
                                     .danger()
                                     .tab_stop(false)
                                     .label("Remove")
@@ -1878,6 +2596,7 @@ impl McpState {
 
     /// Test-connect a server through the MCP client manager (async on the
     /// tokio bridge; the spinner shows while pending).
+    #[cfg(test)]
     fn test_server(
         &mut self,
         server_id: &str,
@@ -1956,6 +2675,7 @@ fn mcp_server_from_draft(draft: &McpDraft, cx: &gpui::App) -> McpServer {
     }
 }
 
+#[cfg(test)]
 fn mcp_server_from_row(row: &McpServerRow, enabled: bool) -> McpServer {
     let mut record = row.record.clone();
     record.enabled = enabled;
@@ -2222,9 +2942,16 @@ mod tests {
 
     #[test]
     fn gallery_geometry_compacts_at_the_exact_breakpoint() {
-        assert_eq!(mcp_gallery_columns(879.0), 1);
-        assert_eq!(mcp_gallery_columns(880.0), 2);
+        assert_eq!(mcp_gallery_columns(1279.0), 1);
+        assert_eq!(mcp_gallery_columns(1280.0), 2);
         assert_eq!(mcp_gallery_columns(1440.0), 2);
+    }
+
+    #[test]
+    fn untouched_presets_do_not_show_connection_badges() {
+        let preset = &aiden_mcp::MCP_PRESETS[0];
+        assert_eq!(mcp_preset_badge(false, preset, &BTreeMap::new()), None);
+        assert!(mcp_preset_badge(true, preset, &BTreeMap::new()).is_some());
     }
 
     #[test]

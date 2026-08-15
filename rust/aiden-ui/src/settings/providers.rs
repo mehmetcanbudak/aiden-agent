@@ -28,13 +28,14 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
+    scroll::ScrollableElement as _,
     select::{Select, SelectEvent, SelectItem, SelectState},
     spinner::Spinner,
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, WindowExt as _,
 };
 use gpui_tokio_bridge::Tokio;
 
-use super::{SettingsServices, SettingsView};
+use super::{settings_field, SettingsServices, SettingsView};
 use crate::services::codex_auth::{
     auth_revision_is_current, CodexAuthAttemptGuard, CodexDeviceOAuth, CodexDialogLease,
     DEVICE_VERIFICATION_URI,
@@ -96,6 +97,83 @@ impl ProviderTemplate {
 struct TitleProviderItem {
     value: ChatTitleProviderId,
     label: &'static str,
+}
+
+#[derive(Clone)]
+struct ProviderKindItem {
+    value: ProviderKind,
+    label: &'static str,
+}
+
+impl SelectItem for ProviderKindItem {
+    type Value = ProviderKind;
+
+    fn title(&self) -> SharedString {
+        self.label.into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+}
+
+#[derive(Clone)]
+struct ProviderDeploymentItem {
+    value: ProviderDeployment,
+    label: &'static str,
+}
+
+impl SelectItem for ProviderDeploymentItem {
+    type Value = ProviderDeployment;
+
+    fn title(&self) -> SharedString {
+        self.label.into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProviderAuthChoice {
+    None,
+    ApiKey,
+}
+
+#[derive(Clone)]
+struct ProviderAuthItem {
+    value: ProviderAuthChoice,
+    label: &'static str,
+}
+
+impl SelectItem for ProviderAuthItem {
+    type Value = ProviderAuthChoice;
+
+    fn title(&self) -> SharedString {
+        self.label.into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+}
+
+#[derive(Clone)]
+struct ProviderModelItem {
+    value: String,
+}
+
+impl SelectItem for ProviderModelItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.value.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
 }
 
 impl SelectItem for TitleProviderItem {
@@ -251,12 +329,16 @@ pub struct ProviderDraft {
     pub models: Entity<InputState>,
     pub api_key: Entity<InputState>,
     pub kind: ProviderKind,
+    kind_select: Entity<SelectState<Vec<ProviderKindItem>>>,
     pub needs_key: bool,
+    auth_select: Entity<SelectState<Vec<ProviderAuthItem>>>,
     pub has_key: bool,
     pub deployment: ProviderDeployment,
+    deployment_select: Entity<SelectState<Vec<ProviderDeploymentItem>>>,
     pub is_preset: bool,
     /// The default model for new turns (model id or empty).
     pub default_model: String,
+    default_model_select: Entity<SelectState<Vec<ProviderModelItem>>>,
     /// The anthropic thinking level for the default model (empty = unset).
     pub thinking_level: String,
     pub saving: bool,
@@ -304,6 +386,7 @@ pub struct ProvidersState {
     pub codex_revision: u64,
     pub codex_attempt: Option<CodexAuthAttemptGuard>,
     pub codex_dialog: Option<CodexDialogLease>,
+    forced_editor_applied: bool,
     pub foundation_status: Option<FoundationModelsConnectionStatus>,
     pub foundation_loading: bool,
     pub foundation_error: Option<String>,
@@ -356,6 +439,15 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        if !self.providers.forced_editor_applied {
+            self.providers.forced_editor_applied = true;
+            let dev = std::env::var("AIDEN_DEV")
+                .ok()
+                .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE"));
+            if dev && std::env::var("AIDEN_FORCE_PROVIDER_MODAL").is_ok() {
+                self.providers.open_editor(None, window, cx);
+            }
+        }
         // Owned color copies: closures below borrow `cx` mutably (row render
         // helpers), so the theme reference cannot stay live across them.
         let theme = cx.theme();
@@ -363,6 +455,8 @@ impl SettingsView {
         let info = theme.info;
         let foreground = theme.foreground;
         let muted_foreground = theme.muted_foreground;
+        let secondary_foreground = theme.secondary_foreground;
+        let border = theme.border;
         let foundation_card = self.foundation_models_card(window, cx).into_any_element();
         let state = &self.providers;
         let builtins: Vec<&ProviderRow> = state
@@ -387,8 +481,12 @@ impl SettingsView {
         let show_more_builtins = state.show_more_builtin_providers;
         let has_lmstudio = custom.iter().any(|row| row.id == "custom:lmstudio");
         let has_ollama = custom.iter().any(|row| row.id == "custom:ollama");
-        let builtins_card =
-            self.provider_card(&featured_builtins, "No built-in providers yet.", cx);
+        let builtins_card = self.provider_card_with_disclosure(
+            &featured_builtins,
+            more_builtins.len(),
+            show_more_builtins,
+            cx,
+        );
         let more_builtins_card = self.provider_card(&more_builtins, "", cx);
         let settings_entity = cx.entity();
         let add_provider_settings = settings_entity.clone();
@@ -405,49 +503,53 @@ impl SettingsView {
                     .gap_4()
                     .child(
                         v_flex()
+                            .min_w(px(0.))
                             .flex_1()
                             .child(
                                 div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(14.0))
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child("Providers"),
                             )
                             .child(
                                 div()
-                                    .text_sm()
-                                    .text_color(muted_foreground)
+                                    .text_size(px(13.0))
+                                    .text_color(secondary_foreground)
                                     .mt_0p5()
                                     .child(
-                                        "Connect local or private OpenAI-compatible servers, and \
-                                         review the built-in providers. API keys are stored in your \
-                                         keychain.",
+                                        "Pi-native providers need only their credentials; Pi owns \
+                                         their endpoints, models, and request transport. Add a custom \
+                                         connection for local or private servers.",
                                     ),
                             ),
                     )
                     .child(
-                        Button::new("refresh-pi-providers")
-                            .small()
-                            .ghost()
-                            .icon(IconName::LoaderCircle)
-                            .label("Refresh")
-                            .loading(state.refreshing)
-                            .disabled(state.refreshing)
-                            .tooltip("Refresh Pi provider models")
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                if this.providers.refreshing {
-                                    return;
-                                }
-                                this.providers.refreshing = true;
-                                this.refresh(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("add-provider")
-                            .small()
-                            .icon(IconName::Plus)
-                            .label("Add provider")
-                            .dropdown_menu(move |menu, _window, _cx| {
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .child(
+                                Button::new("refresh-pi-providers")
+                                    .small()
+                                    .ghost()
+                                    .icon(Icon::default().path("native-icons/refresh-cw.svg"))
+                                    .loading(state.refreshing)
+                                    .disabled(state.refreshing)
+                                    .tooltip("Refresh Pi provider models")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        if this.providers.refreshing {
+                                            return;
+                                        }
+                                        this.providers.refreshing = true;
+                                        this.refresh(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("add-provider")
+                                    .small()
+                                    .icon(IconName::Plus)
+                                    .label("Add provider")
+                                    .dropdown_menu(move |menu, _window, _cx| {
                                 menu
                                     .item(PopupMenuItem::label("Local model servers"))
                                     .item(
@@ -519,6 +621,7 @@ impl SettingsView {
                                             }),
                                     )
                             }),
+                            ),
                     ),
             )
             .when_some(state.error.clone(), |el, message| {
@@ -555,16 +658,16 @@ impl SettingsView {
                     .gap_2()
                     .child(
                         v_flex()
-                            .gap_1()
+                            .gap_0p5()
                             .child(
                                 div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child("Built into Pi"),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(13.0))
                                     .text_color(muted_foreground)
                                     .child(
                                         "These providers update with Pi. Their connection details \
@@ -573,47 +676,30 @@ impl SettingsView {
                             ),
                     )
                     .child(builtins_card)
-                    .when(!more_builtins.is_empty(), |el| {
-                        let settings = settings_entity.clone();
-                        el.child(
-                            h_flex()
-                                .w_full()
-                                .px_1()
-                                .py_1()
-                                .child(
-                                    Button::new("toggle-more-pi-providers")
-                                        .small()
-                                        .ghost()
-                                        .label(if show_more_builtins {
-                                            "Show fewer providers"
-                                        } else {
-                                            "Show more providers"
-                                        })
-                                        .icon(if show_more_builtins {
-                                            IconName::ChevronUp
-                                        } else {
-                                            IconName::ChevronDown
-                                        })
-                                        .on_click(move |_event, _window, cx| {
-                                            settings.update(cx, |this, cx| {
-                                                this.providers.show_more_builtin_providers =
-                                                    !this.providers.show_more_builtin_providers;
-                                                cx.notify();
-                                            });
-                                        }),
-                                ),
-                        )
-                    })
                     .when(show_more_builtins && !more_builtins.is_empty(), |el| {
                         el.child(
                             v_flex()
                                 .w_full()
-                                .gap_1()
+                                .rounded(px(12.0))
+                                .border_1()
+                                .border_color(border)
                                 .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(muted_foreground)
-                                        .child("More Pi providers"),
+                                    v_flex()
+                                        .px(px(14.0))
+                                        .py_3()
+                                        .gap_0p5()
+                                        .child(
+                                            div()
+                                                .text_size(px(13.0))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .child("More Pi providers"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(13.0))
+                                                .text_color(muted_foreground)
+                                                .child("These stay Pi-native and can be set up whenever you need them."),
+                                        ),
                                 )
                                 .child(more_builtins_card),
                         )
@@ -625,27 +711,24 @@ impl SettingsView {
                     .gap_2()
                     .child(
                         v_flex()
-                            .gap_1()
+                            .gap_0p5()
                             .child(
                                 div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
                                     .child("Custom connections"),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(13.0))
                                     .text_color(muted_foreground)
                                     .child(
-                                        "Configure local, private, and vendor-compatible endpoints.",
+                                        "Configure local, private, and vendor-compatible endpoints here.",
                                     ),
                             ),
                     )
                     .child(self.provider_card(&custom, "No custom connections yet.", cx)),
             )
-            .when_some(state.removing.clone(), |el, removing| {
-                el.child(self.provider_remove_confirm(&removing, cx))
-            })
     }
 
     fn codex_provider_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -657,9 +740,7 @@ impl SettingsView {
         v_flex()
             .id("codex-provider-card")
             .w_full()
-            .gap_3()
-            .p_3()
-            .rounded_lg()
+            .rounded(px(12.0))
             .border_1()
             .border_color(theme.border)
             .child(
@@ -667,81 +748,111 @@ impl SettingsView {
                     .w_full()
                     .items_start()
                     .gap_3()
+                    .px(px(14.0))
+                    .py_3()
                     .child(
                         div()
-                            .size(px(28.0))
-                            .rounded_md()
+                            .mt_0p5()
+                            .size(px(32.0))
+                            .rounded(px(12.0))
                             .bg(theme.muted)
                             .items_center()
                             .justify_center()
-                            .child(Icon::new(IconName::Bot).xsmall()),
+                            .child(
+                                Icon::default()
+                                    .path("provider-logos/openai-codex.svg")
+                                    .size(px(16.0)),
+                            ),
                     )
                     .child(
                         v_flex()
                             .flex_1()
-                            .gap_1()
+                            .min_w(px(0.0))
                             .child(
                                 h_flex()
                                     .gap_2()
+                                    .flex_wrap()
                                     .child(
                                         div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_size(px(14.0))
+                                            .font_weight(FontWeight::MEDIUM)
                                             .child("ChatGPT / Codex"),
                                     )
                                     .child(
                                         div()
-                                            .px_1p5()
-                                            .py_0p5()
-                                            .rounded_md()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .rounded_full()
+                                            .bg(theme.info.opacity(0.10))
+                                            .text_size(px(13.0))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.info)
+                                            .flex()
+                                            .items_center()
+                                            .child("Built in"),
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .rounded_full()
                                             .bg(if usable {
-                                                theme.success.opacity(0.14)
+                                                theme.success.opacity(0.10)
                                             } else {
                                                 theme.muted
                                             })
-                                            .text_xs()
+                                            .text_size(px(13.0))
+                                            .font_weight(FontWeight::MEDIUM)
                                             .text_color(if usable {
                                                 theme.success
                                             } else {
                                                 theme.muted_foreground
                                             })
+                                            .flex()
+                                            .items_center()
                                             .child(if needs_attention {
                                                 "Sign in again"
                                             } else if configured {
                                                 "Configured"
                                             } else {
-                                                "Sign in needed"
+                                                "Not configured"
                                             }),
                                     ),
                             )
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                "Use your ChatGPT Plus or Pro account for Codex models. \
-                                         OAuth tokens stay encrypted in this Mac's Keychain.",
-                            ))
-                            .when_some(self.providers.codex_account.clone(), |el, account| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(account),
-                                )
-                            })
-                            .when(usable, |el| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child("Models: GPT-5.3 Codex Spark, GPT-5.4, GPT-5.4 mini, GPT-5.5, GPT-5.6 Luna, Sol, and Terra"),
-                                )
-                            }),
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_size(px(13.0))
+                                    .text_color(theme.secondary_foreground)
+                                    .child(
+                                        "Use your ChatGPT account for Codex models. OAuth credentials \
+                                         stay encrypted on this Mac and are never shown to the renderer.",
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_size(px(13.0))
+                                    .text_color(theme.muted_foreground)
+                                    .child(if needs_attention {
+                                        "The stored ChatGPT sign-in was rejected or could not refresh. Sign in again to repair it.".to_string()
+                                    } else if configured {
+                                        "A ChatGPT credential is stored. Aiden verifies and refreshes it when a Codex request starts.".to_string()
+                                    } else {
+                                        "Sign in with ChatGPT to make Codex models available in the model picker.".to_string()
+                                    }),
+                            ),
                     )
                     .child(
                         h_flex()
+                            .flex_none()
+                            .flex_wrap()
                             .gap_2()
                             .child(
                                 Button::new("codex-sign-in")
                                     .small()
-                                    .primary()
+                                    .when(!configured, |button| button.primary())
+                                    .icon(Icon::default().path("native-icons/log-in.svg"))
                                     .label(if configured {
                                         "Sign in again"
                                     } else {
@@ -797,68 +908,166 @@ impl SettingsView {
         v_flex()
             .id("foundation-models-title-card")
             .w_full()
-            .gap_3()
-            .p_3()
-            .rounded_lg()
+            .rounded(px(12.0))
             .border_1()
             .border_color(theme.border)
             .child(
                 h_flex()
                     .w_full()
-                    .justify_between()
+                    .items_start()
+                    .gap_3()
+                    .px(px(14.0))
+                    .py_3()
+                    .child(
+                        div()
+                            .mt_0p5()
+                            .size(px(32.0))
+                            .flex_none()
+                            .rounded(px(12.0))
+                            .bg(theme.muted)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                Icon::default()
+                                    .path("provider-logos/apple-foundation-models.svg")
+                                    .size(px(16.0)),
+                            ),
+                    )
                     .child(
                         v_flex()
-                            .gap_1()
+                            .min_w(px(0.0))
+                            .flex_1()
                             .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Chat titles"),
+                                h_flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_size(px(14.0))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .child("Apple Foundation Models"),
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .rounded_full()
+                                            .bg(theme.info.opacity(0.10))
+                                            .text_size(px(13.0))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.info)
+                                            .flex()
+                                            .items_center()
+                                            .child("On-device"),
+                                    )
+                                    .child(
+                                        div()
+                                            .h(px(24.0))
+                                            .px_2()
+                                            .rounded_full()
+                                            .bg(if matches!(
+                                                status.map(|status| status.state),
+                                                Some(FoundationModelsConnectionState::Ready)
+                                            ) {
+                                                theme.success.opacity(0.10)
+                                            } else {
+                                                theme.muted
+                                            })
+                                            .text_size(px(13.0))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(if matches!(
+                                                status.map(|status| status.state),
+                                                Some(FoundationModelsConnectionState::Ready)
+                                            ) {
+                                                theme.success
+                                            } else {
+                                                theme.muted_foreground
+                                            })
+                                            .flex()
+                                            .items_center()
+                                            .child(status_label),
+                                    ),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .mt_1()
+                                    .text_size(px(13.0))
                                     .text_color(theme.muted_foreground)
-                                    .child("Apple Foundation Models run on-device when available."),
+                                    .child(status.map_or_else(
+                                        || "Checking Apple Foundation Models…".to_string(),
+                                        |status| status.detail.clone(),
+                                    )),
                             )
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(status_label),
-                            )
-                            .when_some(status.map(|status| status.detail.clone()), |el, detail| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(detail),
-                                )
-                            }),
+                                    .mt_1()
+                                    .text_size(px(13.0))
+                                    .text_color(theme.secondary_foreground)
+                                    .child(
+                                        "This native connection is used only for background chat titles \
+                                         and never appears in the chat model picker.",
+                                    ),
+                            ),
                     )
                     .child(
                         Button::new("foundation-refresh")
                             .small()
                             .ghost()
-                            .label("Refresh status")
+                            .icon(Icon::default().path("native-icons/refresh-cw.svg"))
                             .loading(self.providers.foundation_loading)
                             .disabled(self.providers.foundation_loading)
+                            .tooltip("Refresh Apple Foundation Models status")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.refresh_foundation_status(cx);
                             })),
                     ),
             )
             .child(
-                div()
+                h_flex()
                     .w_full()
-                    .when_some(title_provider_max_width, |element, width| {
-                        element.max_w(px(width))
-                    })
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .px(px(14.0))
+                    .py_3()
                     .child(
-                        Select::new(&title_provider_select)
-                            .small()
-                            .disabled(self.providers.foundation_loading)
-                            .menu_width(px(TITLE_PROVIDER_SELECT_WIDTH_PX)),
+                        v_flex()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Chat title provider"),
+                            )
+                            .child(
+                                div()
+                                    .mt_0p5()
+                                    .text_size(px(13.0))
+                                    .text_color(theme.muted_foreground)
+                                    .child(
+                                        "Automatic prefers this Mac, then uses the selected chat model only \
+                                         when Apple is unavailable. On-device only never falls back to a \
+                                         network provider.",
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_none()
+                            .when_some(title_provider_max_width, |element, width| {
+                                element.max_w(px(width))
+                            })
+                            .child(
+                                Select::new(&title_provider_select)
+                                    .small()
+                                    .disabled(self.providers.foundation_loading)
+                                    .menu_width(px(TITLE_PROVIDER_SELECT_WIDTH_PX)),
+                            ),
                     ),
             )
             .when_some(self.providers.foundation_error.clone(), |el, error| {
@@ -1265,6 +1474,70 @@ impl SettingsView {
     }
 
     /// One rounded card listing a set of provider rows.
+    fn provider_card_with_disclosure(
+        &self,
+        rows: &[&ProviderRow],
+        more_count: usize,
+        expanded: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let selected_id = self
+            .providers
+            .selection()
+            .map(|selection| selection.provider_id);
+        let settings = cx.entity();
+        v_flex()
+            .w_full()
+            .rounded(px(12.0))
+            .border_1()
+            .border_color(border)
+            .children(rows.iter().enumerate().map(|(index, row)| {
+                let row = (*row).clone();
+                let selected = selected_id.as_deref() == Some(row.id.as_str());
+                div()
+                    .w_full()
+                    .when(index > 0, |el| el.border_t_1().border_color(border))
+                    .child(self.provider_row(&row, selected, cx))
+            }))
+            .when(more_count > 0, |el| {
+                el.child(
+                    div()
+                        .w_full()
+                        .border_t_1()
+                        .border_color(border)
+                        .px(px(14.0))
+                        .py_2()
+                        .child(
+                            Button::new("toggle-more-pi-providers")
+                                .small()
+                                .ghost()
+                                .label(if expanded {
+                                    "Show fewer providers".to_string()
+                                } else {
+                                    format!(
+                                        "Show {more_count} more provider{}",
+                                        if more_count == 1 { "" } else { "s" }
+                                    )
+                                })
+                                .icon(if expanded {
+                                    IconName::ChevronUp
+                                } else {
+                                    IconName::ChevronDown
+                                })
+                                .on_click(move |_event, _window, cx| {
+                                    settings.update(cx, |this, cx| {
+                                        this.providers.show_more_builtin_providers =
+                                            !this.providers.show_more_builtin_providers;
+                                        cx.notify();
+                                    });
+                                }),
+                        ),
+                )
+            })
+    }
+
     fn provider_card(
         &self,
         rows: &[&ProviderRow],
@@ -1277,12 +1550,12 @@ impl SettingsView {
         if rows.is_empty() {
             return div()
                 .w_full()
-                .px_3()
+                .px(px(14.0))
                 .py_3()
-                .rounded_lg()
+                .rounded(px(12.0))
                 .border_1()
                 .border_color(border)
-                .text_sm()
+                .text_size(px(13.0))
                 .text_color(muted_foreground)
                 .child(empty.to_string())
                 .into_any_element();
@@ -1293,7 +1566,7 @@ impl SettingsView {
             .map(|selection| selection.provider_id);
         v_flex()
             .w_full()
-            .rounded_lg()
+            .rounded(px(12.0))
             .border_1()
             .border_color(border)
             .children(rows.iter().enumerate().map(|(index, row)| {
@@ -1310,7 +1583,7 @@ impl SettingsView {
     fn provider_row(
         &self,
         row: &ProviderRow,
-        selected: bool,
+        _selected: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -1324,13 +1597,11 @@ impl SettingsView {
         let label = row.label.clone();
         let base_url = row.base_url.clone();
         let models = row.models.len();
-        let preset_models = row.models.clone();
-        let catalog_models = row.catalog_models.clone();
         let is_builtin = row.is_builtin;
         let needs_key = row.needs_key;
         let has_key = row.has_key;
         let setup_available = row.auth_methods.iter().any(|method| method.available);
-        let setup_reason = if setup_available {
+        let setup_reason = if setup_available || row.auth_methods.is_empty() {
             "Configure an encrypted Pi-native API key on this Mac.".to_string()
         } else {
             row.auth_methods
@@ -1356,18 +1627,18 @@ impl SettingsView {
                 "provider-row-{id}"
             ))))
             .w_full()
-            .px_3()
-            .py_2p5()
+            .px(px(14.0))
+            .py_3()
             .gap_3()
             .items_center()
             .child(
                 div()
-                    .size(px(28.))
-                    .rounded_md()
+                    .size(px(32.0))
+                    .rounded(px(12.0))
                     .bg(theme.muted)
                     .items_center()
                     .justify_center()
-                    .child(provider_icon(row).xsmall()),
+                    .child(provider_icon(row).size(px(18.0))),
             )
             .child(
                 v_flex()
@@ -1379,41 +1650,33 @@ impl SettingsView {
                             .items_center()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(px(14.0))
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .child(label),
                             )
                             .child(
                                 div()
-                                    .px_1p5()
-                                    .py_0p5()
-                                    .rounded_md()
-                                    .bg(badge_color.opacity(0.14))
-                                    .text_xs()
+                                    .h(px(24.0))
+                                    .px_2()
+                                    .rounded_full()
+                                    .bg(badge_color.opacity(0.10))
+                                    .text_size(px(13.0))
+                                    .font_weight(FontWeight::MEDIUM)
                                     .text_color(badge_color)
+                                    .flex()
+                                    .items_center()
                                     .child(badge_label),
-                            )
-                            .when(selected, |el| {
-                                el.child(
-                                    div()
-                                        .px_1p5()
-                                        .py_0p5()
-                                        .rounded_md()
-                                        .bg(theme.accent.opacity(0.16))
-                                        .text_xs()
-                                        .text_color(theme.accent)
-                                        .child("Default model"),
-                                )
-                            }),
+                            ),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .mt_0p5()
+                            .text_size(px(13.0))
                             .text_color(theme.muted_foreground)
                             .truncate()
-                            .child(if base_url.is_empty() {
-                                format!("{} model{}", models, if models == 1 { "" } else { "s" })
+                            .child(if is_builtin {
+                                format!("{} Pi model{}", models, if models == 1 { "" } else { "s" })
                             } else {
                                 base_url
                             }),
@@ -1486,65 +1749,6 @@ impl SettingsView {
                                 .text_color(theme.danger)
                                 .child(format!("Test failed: {message}")),
                         ),
-                    })
-                    // Catalog-sourced models: the capability catalog enriches
-                    // built-in providers beyond their preset defaults. Preset
-                    // models stay unbadged; catalog additions carry a
-                    // "discovered" badge (capped with a "+N more" tail).
-                    .when(!catalog_models.is_empty(), |el| {
-                        let accent = theme.accent;
-                        let muted = theme.muted;
-                        let muted_foreground = theme.muted_foreground;
-                        let shown = catalog_models.len().min(6);
-                        let extra = catalog_models.len() - shown;
-                        el.child(
-                            v_flex()
-                                .gap_1()
-                                .mt_1()
-                                .when(!preset_models.is_empty(), |el| {
-                                    el.child(
-                                        div().text_xs().text_color(muted_foreground).child(
-                                            format!("Preset: {}", preset_models.join(" · ")),
-                                        ),
-                                    )
-                                })
-                                .child(
-                                    h_flex()
-                                        .gap_1()
-                                        .flex_wrap()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .px_1p5()
-                                                .py_0p5()
-                                                .rounded_md()
-                                                .bg(accent.opacity(0.14))
-                                                .text_xs()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(accent)
-                                                .child("discovered"),
-                                        )
-                                        .children(catalog_models.iter().take(shown).map(|model| {
-                                            let model = model.clone();
-                                            div()
-                                                .px_1p5()
-                                                .py_0p5()
-                                                .rounded_md()
-                                                .bg(muted.opacity(0.5))
-                                                .text_xs()
-                                                .text_color(muted_foreground)
-                                                .child(model)
-                                        }))
-                                        .when(extra > 0, |el| {
-                                            el.child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(muted_foreground)
-                                                    .child(format!("+{extra} more")),
-                                            )
-                                        }),
-                                ),
-                        )
                     }),
             )
             .child(if is_builtin {
@@ -1555,14 +1759,7 @@ impl SettingsView {
                     "provider-manage-{id}"
                 ))))
                 .small()
-                .label(if has_key {
-                    "Manage"
-                } else if setup_available {
-                    "Set up"
-                } else {
-                    "Unavailable"
-                })
-                .disabled(!setup_available)
+                .label(if has_key { "Manage" } else { "Set up" })
                 .tooltip(setup_reason)
                 .on_click(cx.listener(move |_this, _event, _window, cx| {
                     cx.emit(crate::settings::SettingsEvent::PiProviderSetupRequested {
@@ -1620,10 +1817,9 @@ impl SettingsView {
                         .icon(IconName::Delete)
                         .tooltip("Remove provider")
                         .on_click(cx.listener(
-                            move |this, _event, _window, cx| {
-                                this.providers.removing = Some(click_id.clone());
+                            move |this, _event, window, cx| {
+                                this.providers.open_remove(click_id.clone(), window, cx);
                                 this.error = None;
-                                cx.notify();
                             },
                         ))
                     })
@@ -1631,10 +1827,324 @@ impl SettingsView {
             })
     }
 
-    /// Custom-provider editor content. The editor is mounted by the app-root
-    /// modal layer so the settings navigation and underlying rows are
-    /// occluded while the draft is active.
+    /// Electron-parity custom-provider editor content. The root wrapper in
+    /// `provider_editor_modal` supplies the shared 680 px Dialog surface.
     fn provider_editor(
+        &self,
+        draft: &ProviderDraft,
+        settings: &Entity<SettingsView>,
+        cx: &App,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let well = crate::services::appearance::well_surface(cx);
+        let label_value = draft.label.read(cx).value().to_string();
+        let base_url_value = draft.base_url.read(cx).value().to_string();
+        let models = parse_models_text(&draft.models.read(cx).value());
+        let can_save = !label_value.trim().is_empty()
+            && !base_url_value.trim().is_empty()
+            && valid_base_url(&base_url_value);
+        let discovery = self
+            .providers
+            .discoveries
+            .get(&draft.provider_id)
+            .cloned()
+            .unwrap_or_default();
+        let busy = draft.saving || draft.key_removing || discovery.running;
+        let deployment_description = if draft.deployment == ProviderDeployment::Local {
+            "Aiden shows model-loading status and treats usage as on-device when this Mac (or a marked private host) serves the model."
+        } else {
+            "Hosted cloud APIs skip local model-loading status and may track usage cost when available."
+        };
+        let tailnet = base_url_value
+            .split("//")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .is_some_and(|host| host.to_ascii_lowercase().ends_with(".ts.net"));
+        let auth_description = if draft.needs_key {
+            "This endpoint requires an API key. It is encrypted on this Mac."
+        } else if tailnet {
+            "Tailscale controls network reachability. Add an API key only if this server requires one."
+        } else {
+            "No API key is requested or stored. Aiden sends no Authorization or API-key header."
+        };
+        let connection_notice = discovery.outcome.as_ref().map(|outcome| match outcome {
+            DiscoveryOutcome::Found { count, .. } => (
+                format!(
+                    "{count} model{} found. Save to use them.",
+                    if *count == 1 { "" } else { "s" }
+                ),
+                false,
+            ),
+            DiscoveryOutcome::Failed(message) => {
+                (format!("Couldn't reach this endpoint: {message}"), true)
+            }
+        });
+
+        let mut rows = vec![
+            settings_field(
+                "provider-dialog-name",
+                "Name",
+                "",
+                Input::new(&draft.label).w_full().disabled(busy),
+                true,
+                theme,
+            ),
+            settings_field(
+                "provider-dialog-base-url",
+                "Base URL",
+                "Base address of an OpenAI- or Anthropic-compatible API.",
+                Input::new(&draft.base_url).w_full().disabled(busy),
+                true,
+                theme,
+            ),
+            settings_field(
+                "provider-dialog-api-format",
+                "API format",
+                "",
+                Select::new(&draft.kind_select)
+                    .w_full()
+                    .small()
+                    .disabled(busy),
+                true,
+                theme,
+            ),
+            settings_field(
+                "provider-dialog-deployment",
+                "Deployment",
+                deployment_description,
+                Select::new(&draft.deployment_select)
+                    .w_full()
+                    .small()
+                    .disabled(busy),
+                true,
+                theme,
+            ),
+            settings_field(
+                "provider-dialog-auth",
+                "Authentication",
+                auth_description,
+                Select::new(&draft.auth_select)
+                    .w_full()
+                    .small()
+                    .disabled(busy),
+                true,
+                theme,
+            ),
+        ];
+        if draft.needs_key {
+            rows.push(settings_field(
+                "provider-dialog-key",
+                "API key",
+                if draft.has_key {
+                    "A key is saved. Enter it again to test a changed endpoint; it will not be sent to a different address."
+                } else {
+                    "Stored encrypted on this device."
+                },
+                v_flex()
+                    .w_full()
+                    .gap_1()
+                    .child(
+                        Input::new(&draft.api_key)
+                            .w_full()
+                            .mask_toggle()
+                            .disabled(busy),
+                    )
+                    .when(draft.has_key, |column| {
+                        column.child(
+                            Button::new("remove-provider-key")
+                                .link()
+                                .small()
+                                .label(if draft.key_removing {
+                                    "Removing…"
+                                } else {
+                                    "Remove stored key"
+                                })
+                                .disabled(busy)
+                                .on_click({
+                                    let settings = settings.clone();
+                                    move |_event, _window, cx| {
+                                        settings.update(cx, |state, cx| {
+                                            state.providers.remove_key(&state.services, cx)
+                                        });
+                                    }
+                                }),
+                        )
+                    }),
+                true,
+                theme,
+            ));
+        }
+        rows.push(settings_field(
+            "provider-dialog-connection",
+            "Connection",
+            "",
+            v_flex()
+                .w_full()
+                .gap_2()
+                .items_start()
+                .child(
+                    Button::new("test-provider-draft")
+                        .small()
+                        .label(if discovery.running {
+                            "Discovering…"
+                        } else {
+                            "Discover models"
+                        })
+                        .disabled(draft.saving || draft.key_removing || discovery.running)
+                        .on_click({
+                            let settings = settings.clone();
+                            move |_event, window, cx| {
+                                settings.update(cx, |state, cx| {
+                                    state.providers.test_discover_draft(
+                                        &state.services,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }
+                        }),
+                )
+                .when_some(connection_notice, |column, (message, error)| {
+                    column.child(
+                        div()
+                            .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_color(if error {
+                                theme.danger
+                            } else {
+                                theme.muted_foreground
+                            })
+                            .child(message),
+                    )
+                }),
+            !models.is_empty(),
+            theme,
+        ));
+        if models.is_empty() {
+            rows.push(
+                div()
+                    .w_full()
+                    .p_4()
+                    .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                    .text_color(theme.muted_foreground)
+                    .child(format!(
+                        "No models loaded. Discover models after entering a valid endpoint{}",
+                        if draft.needs_key {
+                            " and API key."
+                        } else {
+                            "."
+                        }
+                    ))
+                    .into_any_element(),
+            );
+        } else {
+            rows.push(settings_field(
+                "provider-dialog-default-model",
+                "Default model",
+                "",
+                Select::new(&draft.default_model_select)
+                    .w_full()
+                    .small()
+                    .disabled(busy),
+                false,
+                theme,
+            ));
+        }
+
+        v_flex()
+            .id("provider-editor")
+            .w_full()
+            .min_h(px(0.))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(18.))
+                    .line_height(px(24.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(format!("Configure {}", label_value)),
+            )
+            .child(
+                div()
+                    .mt(px(6.))
+                    .flex_shrink_0()
+                    .text_size(px(super::SETTINGS_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child("Set the connection details and models for this custom endpoint."),
+            )
+            .child(
+                v_flex()
+                    .mt_4()
+                    .min_h(px(0.))
+                    .overflow_y_scrollbar()
+                    .px_0p5()
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .mb_7()
+                            .overflow_hidden()
+                            .rounded(px(12.))
+                            .bg(well)
+                            .children(rows),
+                    ),
+            )
+            .when_some(draft.error.clone(), |view, error| {
+                view.child(
+                    div()
+                        .mt_3()
+                        .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                        .text_color(theme.danger)
+                        .child(error),
+                )
+            })
+            .child(
+                h_flex()
+                    .mt_5()
+                    .flex_shrink_0()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new("cancel-provider-edit")
+                            .label("Cancel")
+                            .disabled(draft.saving || draft.key_removing)
+                            .on_click({
+                                let settings = settings.clone();
+                                move |_event, window, cx| {
+                                    settings.update(cx, |state, cx| {
+                                        state.close_provider_editor(window, cx)
+                                    });
+                                }
+                            }),
+                    )
+                    .child({
+                        let save = Button::new("save-provider")
+                            .primary()
+                            .label(if draft.saving { "Saving…" } else { "Save" })
+                            .disabled(!can_save || draft.saving || draft.key_removing)
+                            .on_click({
+                                let settings = settings.clone();
+                                move |_event, window, cx| {
+                                    settings.update(cx, |state, cx| {
+                                        state.providers.save_editor(&state.services, window, cx);
+                                    });
+                                }
+                            });
+                        if let Some(last) = self.providers.editor_last_focus.clone() {
+                            h_flex()
+                                .track_focus(&last)
+                                .tab_stop(true)
+                                .child(save.tab_stop(false))
+                                .into_any_element()
+                        } else {
+                            save.into_any_element()
+                        }
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// Retained until the parity dialog has completed its visual bake; useful
+    /// as a behavioral reference for the state callbacks above.
+    #[allow(dead_code)]
+    fn provider_editor_legacy(
         &self,
         draft: &ProviderDraft,
         settings: &Entity<SettingsView>,
@@ -1869,9 +2379,13 @@ impl SettingsView {
                             .disabled(draft.saving || draft.key_removing || discovery.running)
                             .on_click({
                                 let settings = settings.clone();
-                                move |_event, _window, cx| {
+                                move |_event, window, cx| {
                                     settings.update(cx, |this, cx| {
-                                        this.providers.test_discover_draft(&this.services, cx);
+                                        this.providers.test_discover_draft(
+                                            &this.services,
+                                            window,
+                                            cx,
+                                        );
                                     });
                                 }
                             }),
@@ -1935,59 +2449,20 @@ impl SettingsView {
             })
     }
 
-    /// Inline delete-confirmation card.
-    fn provider_remove_confirm(&self, removing: &str, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let removing = removing.to_string();
-        let label = self
-            .providers
-            .providers
-            .iter()
-            .find(|row| row.id == removing)
-            .map(|row| row.label.clone())
-            .unwrap_or_else(|| "this provider".to_string());
-        h_flex()
-            .id("provider-remove-confirm")
-            .w_full()
-            .gap_3()
-            .items_center()
-            .px_4()
-            .py_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.danger.opacity(0.5))
-            .child(div().flex_1().text_sm().child(format!(
-                "Remove “{label}” and its saved key? This cannot be undone."
-            )))
-            .child(
-                Button::new("cancel-provider-remove")
-                    .small()
-                    .ghost()
-                    .label("Cancel")
-                    .on_click(cx.listener(|this, _event, _window, cx| {
-                        this.providers.removing = None;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("confirm-provider-remove")
-                    .small()
-                    .danger()
-                    .label("Remove")
-                    .on_click(cx.listener(move |this, _event, _window, cx| {
-                        this.providers.confirm_remove(&removing, &this.services, cx);
-                    })),
-            )
-    }
-
     pub(crate) fn provider_editor_modal_open(&self) -> bool {
-        self.providers.editing.is_some()
+        self.providers.editing.is_some() || self.providers.removing.is_some()
     }
 
     pub(crate) fn provider_editor_modal_focus_handles(
         &self,
         cx: &App,
     ) -> Option<(FocusHandle, FocusHandle)> {
+        if self.providers.removing.is_some() {
+            return Some((
+                self.providers.editor_first_focus.clone()?,
+                self.providers.editor_last_focus.clone()?,
+            ));
+        }
         let draft = self.providers.editing.as_ref()?;
         Some((
             self.providers
@@ -2014,7 +2489,14 @@ impl SettingsView {
         {
             return;
         }
-        let return_focus = self.providers.close_editor();
+        let return_focus = if self.providers.removing.take().is_some() {
+            self.providers.editor_scope = None;
+            self.providers.editor_first_focus = None;
+            self.providers.editor_last_focus = None;
+            self.providers.editor_return_focus.take()
+        } else {
+            self.providers.close_editor()
+        };
         if let Some(return_focus) = return_focus {
             cx.defer_in(window, move |_this, window, _cx| return_focus.focus(window));
         }
@@ -2031,34 +2513,133 @@ pub(crate) fn provider_editor_modal(
     cx: &mut Context<crate::app::AppState>,
 ) -> AnyElement {
     let state = settings.read(cx);
-    let Some(draft) = state.providers.editing.as_ref() else {
+    if state.providers.editing.is_none() && state.providers.removing.is_none() {
         return div().into_any_element();
-    };
+    }
     let theme = cx.theme().clone();
     let scope = state.providers.editor_scope.clone();
-    let first = draft.label.read(cx).focus_handle(cx);
-    let content = v_flex()
-        .id("settings-provider-editor-dialog")
-        .w(px(640.))
-        .max_w(gpui::relative(0.92))
-        .max_h(gpui::relative(0.9))
-        .overflow_y_scroll()
-        .gap_3()
-        .p_5()
-        .rounded(px(16.))
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.popover)
-        .shadow_lg()
-        .occlude()
-        .track_focus(scope.as_ref().unwrap_or(&first))
-        .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
-            cx.stop_propagation()
-        })
-        .on_click(|_event, _window, cx| cx.stop_propagation());
-    let content = content.child(state.provider_editor(draft, settings, cx));
+    let first = state
+        .providers
+        .editing
+        .as_ref()
+        .map(|draft| draft.label.read(cx).focus_handle(cx))
+        .or_else(|| state.providers.editor_first_focus.clone())
+        .unwrap_or_else(|| cx.focus_handle());
+    let content = if let Some(draft) = state.providers.editing.as_ref() {
+        v_flex()
+            .id("settings-provider-editor-dialog")
+            .w(px(680.))
+            .max_w(gpui::relative(0.92))
+            .max_h(gpui::relative(0.85))
+            .px_6()
+            .py_5()
+            .rounded(px(16.))
+            .bg(theme.popover)
+            .shadow_lg()
+            .occlude()
+            .track_focus(scope.as_ref().unwrap_or(&first))
+            .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation()
+            })
+            .on_click(|_event, _window, cx| cx.stop_propagation())
+            .child(state.provider_editor(draft, settings, cx))
+            .into_any_element()
+    } else {
+        let removing = state.providers.removing.clone().unwrap_or_default();
+        let label = state
+            .providers
+            .providers
+            .iter()
+            .find(|row| row.id == removing)
+            .map(|row| row.label.clone())
+            .unwrap_or_else(|| "this provider".into());
+        v_flex()
+            .id("provider-remove-confirm")
+            .w(px(420.))
+            .max_w(gpui::relative(0.92))
+            .px_6()
+            .py_5()
+            .rounded(px(16.))
+            .bg(theme.popover)
+            .shadow_lg()
+            .occlude()
+            .track_focus(scope.as_ref().unwrap_or(&first))
+            .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation()
+            })
+            .on_click(|_event, _window, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .text_size(px(18.))
+                    .line_height(px(24.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Remove this provider?"),
+            )
+            .child(
+                div()
+                    .mt_2()
+                    .text_size(px(super::SETTINGS_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child(format!("“{label}” and its saved key will be removed.")),
+            )
+            .child(
+                h_flex()
+                    .mt_5()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .when_some(state.providers.editor_first_focus.clone(), |el, focus| {
+                                el.track_focus(&focus).tab_stop(true)
+                            })
+                            .child(
+                                Button::new("cancel-provider-remove")
+                                    .tab_stop(false)
+                                    .label("Cancel")
+                                    .on_click({
+                                        let settings = settings.clone();
+                                        move |_event, window, cx| {
+                                            settings.update(cx, |state, cx| {
+                                                state.close_provider_editor(window, cx)
+                                            });
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .when_some(state.providers.editor_last_focus.clone(), |el, focus| {
+                                el.track_focus(&focus).tab_stop(true)
+                            })
+                            .child(
+                                Button::new("confirm-provider-remove")
+                                    .danger()
+                                    .tab_stop(false)
+                                    .label("Remove")
+                                    .on_click({
+                                        let settings = settings.clone();
+                                        move |_event, window, cx| {
+                                            settings.update(cx, |state, cx| {
+                                                state.providers.confirm_remove(
+                                                    &removing,
+                                                    &state.services,
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    };
     let settings_for_backdrop = settings.clone();
-    let busy = draft.saving;
+    let busy = state
+        .providers
+        .editing
+        .as_ref()
+        .is_some_and(|draft| draft.saving || draft.key_removing);
     v_flex()
         .id("settings-provider-editor-modal-backdrop")
         .absolute()
@@ -2066,7 +2647,6 @@ pub(crate) fn provider_editor_modal(
         .occlude()
         .items_center()
         .justify_center()
-        .bg(gpui::black().opacity(0.18))
         .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
             cx.stop_propagation()
         })
@@ -2082,6 +2662,23 @@ pub(crate) fn provider_editor_modal(
 }
 
 impl ProvidersState {
+    fn open_remove(
+        &mut self,
+        provider_id: String,
+        window: &mut Window,
+        cx: &mut Context<SettingsView>,
+    ) {
+        self.editor_scope = Some(cx.focus_handle());
+        self.editor_first_focus = Some(cx.focus_handle());
+        self.editor_last_focus = Some(cx.focus_handle());
+        self.editor_return_focus = window.focused(cx);
+        self.removing = Some(provider_id);
+        if let Some(first) = self.editor_first_focus.clone() {
+            first.focus(window);
+        }
+        cx.notify();
+    }
+
     /// Open the editor for a provider id (`None` = new custom connection).
     fn open_editor(
         &mut self,
@@ -2197,6 +2794,69 @@ impl ProvidersState {
                 .placeholder("Paste your API key")
                 .masked(true)
         });
+        let kind_items = vec![
+            ProviderKindItem {
+                value: ProviderKind::Openai,
+                label: "OpenAI-compatible",
+            },
+            ProviderKindItem {
+                value: ProviderKind::Anthropic,
+                label: "Anthropic-compatible",
+            },
+        ];
+        let kind_index = kind_items
+            .iter()
+            .position(|item| item.value == kind)
+            .map(|row| gpui_component::IndexPath::default().row(row));
+        let kind_select = cx.new(|cx| SelectState::new(kind_items, kind_index, window, cx));
+        let deployment_items = vec![
+            ProviderDeploymentItem {
+                value: ProviderDeployment::Local,
+                label: "Local",
+            },
+            ProviderDeploymentItem {
+                value: ProviderDeployment::Hosted,
+                label: "Hosted",
+            },
+        ];
+        let deployment_index = deployment_items
+            .iter()
+            .position(|item| item.value == deployment)
+            .map(|row| gpui_component::IndexPath::default().row(row));
+        let deployment_select =
+            cx.new(|cx| SelectState::new(deployment_items, deployment_index, window, cx));
+        let auth_items = vec![
+            ProviderAuthItem {
+                value: ProviderAuthChoice::None,
+                label: "No authentication",
+            },
+            ProviderAuthItem {
+                value: ProviderAuthChoice::ApiKey,
+                label: "API key",
+            },
+        ];
+        let auth_value = if needs_key {
+            ProviderAuthChoice::ApiKey
+        } else {
+            ProviderAuthChoice::None
+        };
+        let auth_index = auth_items
+            .iter()
+            .position(|item| item.value == auth_value)
+            .map(|row| gpui_component::IndexPath::default().row(row));
+        let auth_select = cx.new(|cx| SelectState::new(auth_items, auth_index, window, cx));
+        let model_items = models
+            .iter()
+            .cloned()
+            .map(|value| ProviderModelItem { value })
+            .collect::<Vec<_>>();
+        let model_index = model_items
+            .iter()
+            .position(|item| item.value == default_model)
+            .or_else(|| (!model_items.is_empty()).then_some(0))
+            .map(|row| gpui_component::IndexPath::default().row(row));
+        let default_model_select =
+            cx.new(|cx| SelectState::new(model_items, model_index, window, cx));
         for input in [
             label_input.clone(),
             base_url_input.clone(),
@@ -2226,6 +2886,67 @@ impl ProvidersState {
                 });
             self._subscriptions.push(subscription);
         }
+        self._subscriptions.push(cx.subscribe_in(
+            &kind_select,
+            window,
+            |this, _state, event, _window, cx| {
+                let SelectEvent::Confirm(Some(kind)) = event else {
+                    return;
+                };
+                if let Some(draft) = this.providers.editing.as_mut() {
+                    draft.kind = *kind;
+                    if *kind != ProviderKind::Anthropic {
+                        draft.thinking_level.clear();
+                    } else if draft.thinking_level.is_empty() {
+                        draft.thinking_level = "high".into();
+                    }
+                    draft.error = None;
+                }
+                cx.notify();
+            },
+        ));
+        self._subscriptions.push(cx.subscribe_in(
+            &deployment_select,
+            window,
+            |this, _state, event, _window, cx| {
+                let SelectEvent::Confirm(Some(deployment)) = event else {
+                    return;
+                };
+                if let Some(draft) = this.providers.editing.as_mut() {
+                    draft.deployment = *deployment;
+                    draft.error = None;
+                }
+                cx.notify();
+            },
+        ));
+        self._subscriptions.push(cx.subscribe_in(
+            &auth_select,
+            window,
+            |this, _state, event, _window, cx| {
+                let SelectEvent::Confirm(Some(auth)) = event else {
+                    return;
+                };
+                if let Some(draft) = this.providers.editing.as_mut() {
+                    draft.needs_key = *auth == ProviderAuthChoice::ApiKey;
+                    draft.error = None;
+                }
+                cx.notify();
+            },
+        ));
+        self._subscriptions.push(cx.subscribe_in(
+            &default_model_select,
+            window,
+            |this, _state, event, _window, cx| {
+                let SelectEvent::Confirm(Some(model)) = event else {
+                    return;
+                };
+                if let Some(draft) = this.providers.editing.as_mut() {
+                    draft.default_model = model.clone();
+                    draft.error = None;
+                }
+                cx.notify();
+            },
+        ));
 
         self.editing = Some(ProviderDraft {
             provider_id,
@@ -2234,11 +2955,15 @@ impl ProvidersState {
             models: models_input,
             api_key: api_key_input,
             kind,
+            kind_select,
             needs_key,
+            auth_select,
             has_key,
             deployment,
+            deployment_select,
             is_preset,
             default_model,
+            default_model_select,
             thinking_level,
             saving: false,
             key_removing: false,
@@ -2513,7 +3238,12 @@ impl ProvidersState {
 
     /// Test the exact editor draft. A changed connection can use only a newly
     /// entered key; bound lookup fails closed for an old endpoint credential.
-    fn test_discover_draft(&mut self, services: &SettingsServices, cx: &mut Context<SettingsView>) {
+    fn test_discover_draft(
+        &mut self,
+        services: &SettingsServices,
+        window: &mut Window,
+        cx: &mut Context<SettingsView>,
+    ) {
         let Some(draft) = self.editing.as_ref() else {
             return;
         };
@@ -2569,30 +3299,62 @@ impl ProvidersState {
                 ) => result.map_err(|error| error.to_string()),
             }
         });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            this.update(cx, |this, cx| {
+            this.update_in(cx, |this, window, cx| {
                 let still_open = this
                     .providers
                     .editing
                     .as_ref()
                     .is_some_and(|draft| draft.provider_id == provider_id);
-                let state = this.providers.discoveries.entry(provider_id).or_default();
-                if !still_open || state.revision != revision {
+                let is_current = this
+                    .providers
+                    .discoveries
+                    .get(&provider_id)
+                    .is_some_and(|state| state.revision == revision);
+                if !still_open || !is_current {
                     return;
                 }
-                state.running = false;
-                state.cancel = None;
-                state.outcome = Some(match result {
-                    Ok(Ok(models)) => DiscoveryOutcome::Found {
-                        count: models.len(),
-                        models: models.into_iter().map(|model| model.id).collect(),
-                    },
+                let outcome = match result {
+                    Ok(Ok(models)) => {
+                        let ids = models.into_iter().map(|model| model.id).collect::<Vec<_>>();
+                        let count = ids.len();
+                        if let Some(draft) = this.providers.editing.as_mut() {
+                            let text = ids.join("\n");
+                            draft.models.update(cx, |input, cx| {
+                                input.set_value(text, window, cx);
+                            });
+                            let selected = if ids.contains(&draft.default_model) {
+                                draft.default_model.clone()
+                            } else {
+                                ids.first().cloned().unwrap_or_default()
+                            };
+                            draft.default_model = selected.clone();
+                            let items = ids
+                                .iter()
+                                .cloned()
+                                .map(|value| ProviderModelItem { value })
+                                .collect::<Vec<_>>();
+                            draft.default_model_select.update(cx, |select, cx| {
+                                select.set_items(items, window, cx);
+                                if selected.is_empty() {
+                                    select.set_selected_index(None, window, cx);
+                                } else {
+                                    select.set_selected_value(&selected, window, cx);
+                                }
+                            });
+                        }
+                        DiscoveryOutcome::Found { count, models: ids }
+                    }
                     Ok(Err(error)) => DiscoveryOutcome::Failed(error),
                     Err(_) => {
                         DiscoveryOutcome::Failed("The model discovery was interrupted.".to_string())
                     }
-                });
+                };
+                let state = this.providers.discoveries.entry(provider_id).or_default();
+                state.running = false;
+                state.cancel = None;
+                state.outcome = Some(outcome);
                 cx.notify();
             })
             .ok();
@@ -2652,11 +3414,12 @@ impl ProvidersState {
         &mut self,
         provider_id: &str,
         services: &SettingsServices,
+        window: &mut Window,
         cx: &mut Context<SettingsView>,
     ) {
         let provider_id = provider_id.to_string();
         let services = services.clone();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let ok = cx
                 .background_spawn(async move {
                     crate::services::provider_mutation::ProviderMutationService::new(
@@ -2667,9 +3430,12 @@ impl ProvidersState {
                     .is_ok()
                 })
                 .await;
-            this.update(cx, |this, cx| {
+            this.update_in(cx, |this, window, cx| {
                 this.providers.removing = None;
-                let _ = this.providers.close_editor();
+                let return_focus = this.providers.close_editor();
+                if let Some(return_focus) = return_focus {
+                    cx.defer_in(window, move |_this, window, _cx| return_focus.focus(window));
+                }
                 this.providers.error = if ok {
                     None
                 } else {

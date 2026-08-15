@@ -60,6 +60,7 @@ mod app_assets;
 mod approvals;
 mod assistant;
 mod chat;
+mod controls;
 mod environment;
 #[allow(dead_code)]
 mod onboarding;
@@ -269,6 +270,22 @@ fn forced_appearance_mode(dev: bool, value: Option<&str>) -> Option<aiden_core::
     }
 }
 
+/// Dev-only visual-QA route override. Production launches still restore the
+/// normal chat surface; local parity captures can open the same settings route
+/// as the Electron reference without relying on inaccessible canvas clicks.
+fn forced_settings_section(dev: bool, value: Option<&str>) -> Option<settings::SettingsSection> {
+    dev.then(|| value.and_then(settings::SettingsSection::parse))
+        .flatten()
+}
+
+fn forced_window_size(dev: bool, value: Option<&str>) -> Option<(f32, f32)> {
+    let value = dev.then_some(value?)?;
+    let (width, height) = value.split_once('x')?;
+    let width = width.parse::<f32>().ok()?;
+    let height = height.parse::<f32>().ok()?;
+    (width >= 390.0 && height >= 456.0).then_some((width, height))
+}
+
 fn main() {
     let dev = aiden_data::is_dev_mode();
     let forced_onboarding_step =
@@ -276,6 +293,8 @@ fn main() {
     let force_onboarding = forced_onboarding_step.is_some();
     let forced_appearance_mode =
         forced_appearance_mode(dev, std::env::var("AIDEN_FORCE_APPEARANCE").ok().as_deref());
+    let forced_settings_section =
+        forced_settings_section(dev, std::env::var("AIDEN_FORCE_SETTINGS").ok().as_deref());
 
     // GPUI runs inside ObjC callbacks (NSApplication run loop) where Rust
     // panics cannot unwind. Install a hook that logs the panic + backtrace to
@@ -461,7 +480,9 @@ fn main() {
                 }
             }
         } else {
-            if let Err(error) = open_main_window(cx, stores) {
+            if let Err(error) =
+                open_main_window_with_forced_settings(cx, stores, forced_settings_section)
+            {
                 eprintln!("failed to open the Aiden window: {error}");
                 return;
             }
@@ -574,13 +595,30 @@ fn activate_existing_instance() {
 /// Open the main Aiden window: the `AppState` shell under a gpui-component
 /// `Root` (dialogs/notifications/sheets live on the Root layer).
 fn open_main_window(cx: &mut App, stores: Stores) -> anyhow::Result<gpui::WindowHandle<Root>> {
-    open_main_window_with_pi_setup(cx, stores, None)
+    open_main_window_with_forced_settings(cx, stores, None)
+}
+
+fn open_main_window_with_forced_settings(
+    cx: &mut App,
+    stores: Stores,
+    forced_settings_section: Option<settings::SettingsSection>,
+) -> anyhow::Result<gpui::WindowHandle<Root>> {
+    open_main_window_with_options(cx, stores, None, forced_settings_section)
 }
 
 fn open_main_window_with_pi_setup(
     cx: &mut App,
     stores: Stores,
     pi_provider_setup: Option<onboarding::PiProviderSetupRequest>,
+) -> anyhow::Result<gpui::WindowHandle<Root>> {
+    open_main_window_with_options(cx, stores, pi_provider_setup, None)
+}
+
+fn open_main_window_with_options(
+    cx: &mut App,
+    stores: Stores,
+    pi_provider_setup: Option<onboarding::PiProviderSetupRequest>,
+    forced_settings_section: Option<settings::SettingsSection>,
 ) -> anyhow::Result<gpui::WindowHandle<Root>> {
     let dev = aiden_data::is_dev_mode();
     let app_id = if dev {
@@ -598,8 +636,16 @@ fn open_main_window_with_pi_setup(
         traffic_light_position: Some(point(px(14.0), px(20.0))),
         ..TitleBar::title_bar_options()
     };
+    let qa_window_size = forced_window_size(
+        dev,
+        std::env::var("AIDEN_FORCE_WINDOW_SIZE").ok().as_deref(),
+    )
+    .unwrap_or((1000.0, 700.0));
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(1000.0), px(700.0)), cx)),
+        window_bounds: Some(WindowBounds::centered(
+            size(px(qa_window_size.0), px(qa_window_size.1)),
+            cx,
+        )),
         // Canonical Electron minimum. GPUI 0.2.2 exposes content-size bounds
         // only; its full-size macOS titlebar keeps this aligned in practice.
         window_min_size: Some(size(px(390.0), px(456.0))),
@@ -632,6 +678,9 @@ fn open_main_window_with_pi_setup(
             if let Some((provider_id, label, revision)) = pi_provider_setup {
                 view.open_pi_provider_setup(&provider_id, &label, Some(revision), window, cx);
             }
+            if let Some(section) = forced_settings_section {
+                view.enter_settings(Some(section), window, cx);
+            }
             view
         });
         let weak_view = view.downgrade();
@@ -655,7 +704,11 @@ fn open_main_window_with_pi_setup(
 
 #[cfg(test)]
 mod lifecycle_tests {
-    use super::{forced_appearance_mode, forced_onboarding_step, reopen_target, ReopenTarget};
+    use super::{
+        forced_appearance_mode, forced_onboarding_step, forced_settings_section,
+        forced_window_size, reopen_target, ReopenTarget,
+    };
+    use crate::settings::SettingsSection;
     use crate::shortcut_runtime::MainWindowLifecycle;
 
     #[test]
@@ -697,6 +750,34 @@ mod lifecycle_tests {
         assert_eq!(forced_appearance_mode(false, Some("light")), None);
         assert_eq!(forced_appearance_mode(true, Some("system")), None);
         assert_eq!(forced_appearance_mode(true, None), None);
+    }
+
+    #[test]
+    fn visual_qa_settings_route_can_only_be_forced_in_dev_mode() {
+        assert_eq!(
+            forced_settings_section(true, Some("providers")),
+            Some(SettingsSection::Providers)
+        );
+        assert_eq!(
+            forced_settings_section(true, Some("modelData")),
+            Some(SettingsSection::ModelData)
+        );
+        assert_eq!(forced_settings_section(false, Some("providers")), None);
+        assert_eq!(forced_settings_section(true, Some("scheduled-tasks")), None);
+        assert_eq!(forced_settings_section(true, None), None);
+    }
+
+    #[test]
+    fn visual_qa_window_size_is_bounded_and_dev_only() {
+        assert_eq!(
+            forced_window_size(true, Some("1280x1050")),
+            Some((1280.0, 1050.0))
+        );
+        assert_eq!(forced_window_size(false, Some("1280x1050")), None);
+        assert_eq!(forced_window_size(true, Some("389x1050")), None);
+        assert_eq!(forced_window_size(true, Some("1280x455")), None);
+        assert_eq!(forced_window_size(true, Some("wide")), None);
+        assert_eq!(forced_window_size(true, None), None);
     }
 
     #[test]

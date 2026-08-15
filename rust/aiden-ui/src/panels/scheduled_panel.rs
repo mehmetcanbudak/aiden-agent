@@ -705,7 +705,7 @@ impl ScheduledPanel {
                     })),
             )
             .child(
-                gpui_component::switch::Switch::new(ElementId::Name(SharedString::from(format!(
+                crate::controls::Switch::new(ElementId::Name(SharedString::from(format!(
                     "scheduled-enabled-{id}"
                 ))))
                 .checked(task.enabled)

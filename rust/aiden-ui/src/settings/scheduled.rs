@@ -16,18 +16,24 @@ use aiden_data::schedule_store::{
     ScheduledTaskMode, ScheduledTaskPermission,
 };
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AppContext as _, Context, ElementId, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, AppContext as _, Context, ElementId, Entity,
+    FocusHandle, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    switch::Switch,
+    menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
 };
 
-use super::{SettingsServices, SettingsView};
+use crate::controls::Switch;
+
+use super::{
+    settings_field, settings_fieldset, SettingsServices, SettingsView, SETTINGS_CARD_RADIUS_PX,
+    SETTINGS_SMALL_TEXT_PX, SETTINGS_TEXT_PX,
+};
 
 const DEFAULT_SCHEDULED_MODE: ScheduledTaskMode = ScheduledTaskMode::Llm;
 const DEFAULT_SCHEDULED_PERMISSION: ScheduledTaskPermission = ScheduledTaskPermission::ReadOnly;
@@ -164,6 +170,10 @@ pub struct ScheduledState {
     pub defaults_saving: bool,
     pub default_timezone_input: Option<Entity<InputState>>,
     pub settings_revision: Arc<AtomicU64>,
+    modal_scope: Option<FocusHandle>,
+    modal_first_focus: Option<FocusHandle>,
+    modal_last_focus: Option<FocusHandle>,
+    modal_return_focus: Option<FocusHandle>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -194,8 +204,41 @@ impl Default for ScheduledState {
             defaults_saving: false,
             default_timezone_input: None,
             settings_revision: Arc::new(AtomicU64::new(0)),
+            modal_scope: None,
+            modal_first_focus: None,
+            modal_last_focus: None,
+            modal_return_focus: None,
             _subscriptions: Vec::new(),
         }
+    }
+}
+
+/// Root host for the scheduled-task AlertDialog.
+pub(crate) struct ScheduledModalLayer {
+    settings: Entity<SettingsView>,
+}
+
+impl ScheduledModalLayer {
+    pub(crate) fn new(settings: Entity<SettingsView>) -> Self {
+        Self { settings }
+    }
+}
+
+impl Render for ScheduledModalLayer {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings = self.settings.clone();
+        settings.update(cx, |settings, cx| {
+            settings
+                .scheduled
+                .removing
+                .clone()
+                .map(|removing| {
+                    settings
+                        .schedule_remove_modal(&removing, cx)
+                        .into_any_element()
+                })
+                .unwrap_or_else(|| div().into_any_element())
+        })
     }
 }
 
@@ -296,8 +339,346 @@ pub fn cron_feedback(cron: &str) -> Result<String, String> {
 }
 
 impl SettingsView {
-    /// The Scheduled tasks section.
     pub(crate) fn scheduled_section(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        if self.scheduled.default_timezone_input.is_none() {
+            let timezone = self.scheduled.defaults.default_timezone.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("America/New_York")
+                    .default_value(timezone)
+            });
+            self.scheduled._subscriptions.push(cx.subscribe_in(
+                &input,
+                window,
+                |this, source, event, _window, cx| {
+                    if matches!(
+                        event,
+                        InputEvent::Blur | InputEvent::PressEnter { secondary: false }
+                    ) {
+                        let timezone = source.read(cx).value().to_string();
+                        let services = this.services.clone();
+                        this.scheduled
+                            .save_default_timezone(timezone, &services, cx);
+                    }
+                },
+            ));
+            self.scheduled.default_timezone_input = Some(input);
+        }
+        let theme = cx.theme().clone();
+        let well = crate::services::appearance::well_surface(cx);
+        let state = &self.scheduled;
+        let timezone_input = state
+            .default_timezone_input
+            .clone()
+            .expect("scheduled timezone input is initialized before rendering");
+        let defaults_editable = state.defaults_editable();
+        let enabled_mcp_count = state
+            .mcp_servers
+            .iter()
+            .filter(|server| server.enabled)
+            .count();
+
+        let enabled = settings_field(
+            "scheduled-global-enabled",
+            "Enable scheduled tasks",
+            "Pause or resume every automatic task without deleting its schedule.",
+            Switch::new("scheduled-global-enabled-switch")
+                .checked(state.global_enabled)
+                .disabled(!state.executor_ready || state.global_saving)
+                .on_click(cx.listener(|this, enabled, _window, cx| {
+                    let services = this.services.clone();
+                    this.scheduled.set_global_enabled(*enabled, &services, cx);
+                })),
+            true,
+            &theme,
+        );
+
+        let mode_label = match state.defaults.default_mode {
+            ScheduledTaskMode::Llm => "Ask Aiden",
+            ScheduledTaskMode::Script => "Run script",
+        };
+        let mode_settings = cx.entity();
+        let mode = settings_field(
+            "scheduled-default-mode",
+            "Default task mode",
+            "Used when Aiden creates a new task.",
+            Button::new("scheduled-default-mode-select")
+                .small()
+                .label(mode_label)
+                .disabled(!defaults_editable)
+                .dropdown_menu(move |menu, _window, _cx| {
+                    let ask_settings = mode_settings.clone();
+                    let script_settings = mode_settings.clone();
+                    menu.item(
+                        PopupMenuItem::new("Ask Aiden").on_click(move |_, _window, cx| {
+                            ask_settings.update(cx, |this, cx| {
+                                let mut patch = serde_json::Map::new();
+                                patch.insert(
+                                    "scheduledDefaultMode".into(),
+                                    serde_json::Value::String("llm".into()),
+                                );
+                                let services = this.services.clone();
+                                this.scheduled.save_defaults_patch(patch, &services, cx);
+                            });
+                        }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Run script").on_click(move |_, _window, cx| {
+                            script_settings.update(cx, |this, cx| {
+                                let mut patch = serde_json::Map::new();
+                                patch.insert(
+                                    "scheduledDefaultMode".into(),
+                                    serde_json::Value::String("script".into()),
+                                );
+                                let services = this.services.clone();
+                                this.scheduled.save_defaults_patch(patch, &services, cx);
+                            });
+                        }),
+                    )
+                }),
+            true,
+            &theme,
+        );
+
+        let permission_label = match state.defaults.default_permission {
+            ScheduledTaskPermission::ReadOnly => "Read-only",
+            ScheduledTaskPermission::Full => "Full",
+        };
+        let permission_settings = cx.entity();
+        let permission = settings_field(
+            "scheduled-default-permission",
+            "Default permission",
+            "Read-only can inspect context. Full can edit files and run commands without asking.",
+            Button::new("scheduled-default-permission-select")
+                .small()
+                .label(permission_label)
+                .disabled(!defaults_editable)
+                .dropdown_menu(move |menu, _window, _cx| {
+                    let read_only_settings = permission_settings.clone();
+                    let full_settings = permission_settings.clone();
+                    menu.item(
+                        PopupMenuItem::new("Read-only").on_click(move |_, _window, cx| {
+                            read_only_settings.update(cx, |this, cx| {
+                                let mut patch = serde_json::Map::new();
+                                patch.insert(
+                                    "scheduledDefaultPermission".into(),
+                                    serde_json::Value::String("read-only".into()),
+                                );
+                                patch.insert(
+                                    "scheduledDefaultMcpEnabled".into(),
+                                    serde_json::Value::Bool(false),
+                                );
+                                let services = this.services.clone();
+                                this.scheduled.save_defaults_patch(patch, &services, cx);
+                            });
+                        }),
+                    )
+                    .item(PopupMenuItem::new("Full").on_click(move |_, _window, cx| {
+                        full_settings.update(cx, |this, cx| {
+                            let mut patch = serde_json::Map::new();
+                            patch.insert(
+                                "scheduledDefaultPermission".into(),
+                                serde_json::Value::String("full".into()),
+                            );
+                            let services = this.services.clone();
+                            this.scheduled.save_defaults_patch(patch, &services, cx);
+                        });
+                    }))
+                }),
+            true,
+            &theme,
+        );
+
+        let mcp_control = v_flex()
+            .items_end()
+            .gap_1()
+            .child(
+                Switch::new("scheduled-default-mcp-switch")
+                    .checked(
+                        state.defaults.default_permission == ScheduledTaskPermission::Full
+                            && state.defaults.default_mcp_enabled,
+                    )
+                    .disabled(
+                        !defaults_editable
+                            || state.mcp_servers.iter().all(|server| !server.enabled),
+                    )
+                    .on_click(cx.listener(|this, enabled, _window, cx| {
+                        let mut patch = serde_json::Map::new();
+                        patch.insert(
+                            "scheduledDefaultMcpEnabled".into(),
+                            serde_json::Value::Bool(*enabled),
+                        );
+                        if *enabled {
+                            patch.insert(
+                                "scheduledDefaultPermission".into(),
+                                serde_json::Value::String("full".into()),
+                            );
+                        }
+                        let services = this.services.clone();
+                        this.scheduled.save_defaults_patch(patch, &services, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child(if enabled_mcp_count == 0 {
+                        "No enabled servers".to_string()
+                    } else {
+                        format!(
+                            "{enabled_mcp_count} enabled {}",
+                            if enabled_mcp_count == 1 {
+                                "server"
+                            } else {
+                                "servers"
+                            }
+                        )
+                    }),
+            );
+        let mcp = settings_field(
+            "scheduled-default-mcp",
+            "Default MCP access",
+            "Preselect every currently enabled MCP server for new Full Ask Aiden tasks.",
+            mcp_control,
+            true,
+            &theme,
+        );
+
+        let notifications = settings_field(
+            "scheduled-default-notify",
+            "Notifications",
+            "Notify after non-silent task runs.",
+            Switch::new("scheduled-default-notify-switch")
+                .checked(state.defaults.default_notify)
+                .disabled(!defaults_editable)
+                .on_click(cx.listener(|this, enabled, _window, cx| {
+                    let mut patch = serde_json::Map::new();
+                    patch.insert(
+                        "scheduledDefaultNotify".into(),
+                        serde_json::Value::Bool(*enabled),
+                    );
+                    let services = this.services.clone();
+                    this.scheduled.save_defaults_patch(patch, &services, cx);
+                })),
+            true,
+            &theme,
+        );
+
+        let timezone = settings_field(
+            "scheduled-default-timezone",
+            "Default timezone",
+            "An IANA timezone such as America/New_York.",
+            Input::new(&timezone_input)
+                .small()
+                .w(px(190.))
+                .disabled(!defaults_editable),
+            true,
+            &theme,
+        );
+
+        let script_folders = div()
+            .id("scheduled-script-folders")
+            .w_full()
+            .p_4()
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .child(
+                                div()
+                                    .text_size(px(SETTINGS_TEXT_PX))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Script folders"),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(2.))
+                                    .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_color(theme.secondary_foreground)
+                                    .child("Workspace scripts take precedence over global scripts with the same file name."),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .rounded(px(SETTINGS_CARD_RADIUS_PX))
+                            .bg(theme.background)
+                            .px_3()
+                            .py_2()
+                            .font_family("monospace")
+                            .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                            .text_color(theme.secondary_foreground)
+                            .child("<workspace>/.aiden/scripts/\n~/.aiden/scripts/"),
+                    ),
+            )
+            .into_any_element();
+
+        let task_rows: Vec<AnyElement> = if state.schedules.is_empty() {
+            vec![h_flex()
+                .items_center()
+                .gap_3()
+                .p_4()
+                .child(
+                    Icon::new(IconName::Calendar)
+                        .small()
+                        .text_color(theme.muted_foreground),
+                )
+                .child(
+                    div()
+                        .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                        .text_color(theme.secondary_foreground)
+                        .child("No scheduled tasks yet."),
+                )
+                .into_any_element()]
+        } else {
+            state
+                .schedules
+                .iter()
+                .map(|row| self.schedule_row(row, cx).into_any_element())
+                .collect()
+        };
+
+        v_flex()
+            .id("scheduled-section")
+            .w_full()
+            .when_some(state.error.clone(), |view, message| {
+                view.child(
+                    div()
+                        .mb_4()
+                        .rounded(px(SETTINGS_CARD_RADIUS_PX))
+                        .bg(theme.danger.opacity(0.12))
+                        .p_3()
+                        .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                        .text_color(theme.danger)
+                        .child(message),
+                )
+            })
+            .child(settings_fieldset(
+                "Scheduled tasks",
+                vec![
+                    enabled,
+                    mode,
+                    permission,
+                    mcp,
+                    notifications,
+                    timezone,
+                    script_folders,
+                ],
+                well,
+            ))
+            .child(settings_fieldset("Current tasks", task_rows, well))
+            .when_some(state.adding.as_ref(), |view, draft| {
+                view.child(self.schedule_editor(draft, cx))
+            })
+    }
+
+    #[allow(dead_code)]
+    /// The Scheduled tasks section.
+    fn scheduled_section_legacy(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -720,7 +1101,7 @@ impl SettingsView {
                 el.child(self.schedule_editor(draft, cx))
             })
             .when_some(state.removing.clone(), |el, removing| {
-                el.child(self.schedule_remove_confirm(&removing, cx))
+                el.child(self.schedule_remove_modal(&removing, cx))
             })
     }
 
@@ -874,9 +1255,8 @@ impl SettingsView {
                 .ghost()
                 .icon(IconName::Delete)
                 .tooltip("Delete task")
-                .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.scheduled.removing = Some(click_id.clone());
-                    cx.notify();
+                .on_click(cx.listener(move |this, _event, window, cx| {
+                    this.scheduled.open_remove(click_id.clone(), window, cx);
                 }))
             })
     }
@@ -1282,8 +1662,22 @@ impl SettingsView {
             )
     }
 
-    /// Inline delete-confirmation card.
-    fn schedule_remove_confirm(&self, removing: &str, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn scheduled_modal_open(&self) -> bool {
+        self.scheduled.removing.is_some()
+    }
+
+    fn close_scheduled_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.scheduled.removing = None;
+        self.scheduled.modal_scope = None;
+        self.scheduled.modal_first_focus = None;
+        self.scheduled.modal_last_focus = None;
+        if let Some(focus) = self.scheduled.modal_return_focus.take() {
+            cx.defer_in(window, move |_this, window, _cx| focus.focus(window));
+        }
+        cx.notify();
+    }
+
+    fn schedule_remove_modal(&self, removing: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let removing = removing.to_string();
         let label = self
@@ -1293,42 +1687,148 @@ impl SettingsView {
             .find(|row| row.id == removing)
             .map(|row| row.name.clone())
             .unwrap_or_else(|| "this task".to_string());
-        h_flex()
-            .id("schedule-remove-confirm")
-            .w_full()
-            .gap_3()
+        let scope = self.scheduled.modal_scope.clone();
+        let first = self.scheduled.modal_first_focus.clone();
+        let last = self.scheduled.modal_last_focus.clone();
+        div()
+            .id("schedule-remove-modal-layer")
+            .absolute()
+            .inset_0()
+            .flex()
             .items_center()
-            .px_4()
-            .py_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.danger.opacity(0.5))
-            .child(div().flex_1().text_sm().child(format!(
-                "Delete “{label}” and its run history? This cannot be undone."
-            )))
-            .child(
-                Button::new("cancel-schedule-remove")
-                    .small()
-                    .ghost()
-                    .label("Cancel")
-                    .on_click(cx.listener(|this, _event, _window, cx| {
-                        this.scheduled.removing = None;
-                        cx.notify();
-                    })),
+            .justify_center()
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation()
+            })
+            .on_click(cx.listener(|this, _event, window, cx| {
+                cx.stop_propagation();
+                this.close_scheduled_modal(window, cx);
+            }))
+            .on_key_down(
+                cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                    if event.keystroke.key.as_str() == "escape" {
+                        this.close_scheduled_modal(window, cx);
+                        cx.stop_propagation();
+                        return;
+                    }
+                    if event.keystroke.key.as_str() == "tab" {
+                        let (Some(first), Some(last)) = (first.as_ref(), last.as_ref()) else {
+                            return;
+                        };
+                        let focused = window.focused(cx);
+                        let target = if event.keystroke.modifiers.shift {
+                            if focused.as_ref() == Some(first) {
+                                last
+                            } else {
+                                first
+                            }
+                        } else if focused.as_ref() == Some(last) {
+                            first
+                        } else {
+                            last
+                        };
+                        target.focus(window);
+                        cx.stop_propagation();
+                    }
+                }),
             )
             .child(
-                Button::new("confirm-schedule-remove")
-                    .small()
-                    .danger()
-                    .label("Delete")
-                    .on_click(cx.listener(move |this, _event, _window, cx| {
-                        this.scheduled.confirm_remove(&removing, &this.services, cx);
-                    })),
+                v_flex()
+                    .id("schedule-remove-confirm")
+                    .w(px(420.))
+                    .max_w(gpui::relative(0.92))
+                    .px_6()
+                    .py_5()
+                    .rounded(px(16.))
+                    .bg(theme.popover)
+                    .shadow_lg()
+                    .occlude()
+                    .when_some(scope, |dialog, scope| dialog.track_focus(&scope))
+                    .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
+                        cx.stop_propagation()
+                    })
+                    .on_click(|_event, _window, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .text_size(px(18.))
+                            .line_height(px(24.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Delete this scheduled task?"),
+                    )
+                    .child(
+                        div()
+                            .mt_2()
+                            .text_size(px(SETTINGS_TEXT_PX))
+                            .text_color(theme.secondary_foreground)
+                            .child(format!("“{label}” and its run history will be removed.")),
+                    )
+                    .child(
+                        h_flex()
+                            .mt_5()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                h_flex()
+                                    .when_some(
+                                        self.scheduled.modal_first_focus.clone(),
+                                        |el, focus| el.track_focus(&focus).tab_stop(true),
+                                    )
+                                    .child(
+                                        Button::new("cancel-schedule-remove")
+                                            .tab_stop(false)
+                                            .label("Cancel")
+                                            .on_click(cx.listener(|this, _event, window, cx| {
+                                                this.close_scheduled_modal(window, cx);
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .when_some(
+                                        self.scheduled.modal_last_focus.clone(),
+                                        |el, focus| el.track_focus(&focus).tab_stop(true),
+                                    )
+                                    .child(
+                                        Button::new("confirm-schedule-remove")
+                                            .tab_stop(false)
+                                            .danger()
+                                            .label("Delete")
+                                            .on_click(cx.listener(
+                                                move |this, _event, window, cx| {
+                                                    this.scheduled.confirm_remove(
+                                                        &removing,
+                                                        &this.services,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                },
+                                            )),
+                                    ),
+                            ),
+                    ),
             )
     }
 }
 
 impl ScheduledState {
+    fn open_remove(
+        &mut self,
+        task_id: String,
+        window: &mut Window,
+        cx: &mut Context<SettingsView>,
+    ) {
+        self.modal_scope = Some(cx.focus_handle());
+        self.modal_first_focus = Some(cx.focus_handle());
+        self.modal_last_focus = Some(cx.focus_handle());
+        self.modal_return_focus = window.focused(cx);
+        self.removing = Some(task_id);
+        if let Some(first) = self.modal_first_focus.clone() {
+            first.focus(window);
+        }
+        cx.notify();
+    }
+
     pub fn hydrate_defaults(
         &mut self,
         settings: &serde_json::Map<String, serde_json::Value>,
@@ -1812,16 +2312,23 @@ impl ScheduledState {
         &mut self,
         id: &str,
         services: &SettingsServices,
+        window: &mut Window,
         cx: &mut Context<SettingsView>,
     ) {
         let services = services.clone();
         let id = id.to_string();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move { services.scheduler.remove(&id).await })
                 .await;
-            this.update(cx, |this, cx| {
+            this.update_in(cx, |this, window, cx| {
                 this.scheduled.removing = None;
+                this.scheduled.modal_scope = None;
+                this.scheduled.modal_first_focus = None;
+                this.scheduled.modal_last_focus = None;
+                if let Some(focus) = this.scheduled.modal_return_focus.take() {
+                    cx.defer_in(window, move |_this, window, _cx| focus.focus(window));
+                }
                 match result {
                     Ok(_) => this.scheduled.error = None,
                     Err(error) => {

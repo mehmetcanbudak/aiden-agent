@@ -11,28 +11,28 @@ use aiden_core::appearance::{
     Selection, UiFont,
 };
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, AppContext as _, Context, FontWeight, Image,
-    ImageFormat, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    div, img, prelude::FluentBuilder as _, px, relative, AnyElement, AppContext as _, Context,
+    FontWeight, Image, ImageFormat, InteractiveElement as _, IntoElement, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    radio::Radio,
+    menu::{DropdownMenu as _, PopupMenuItem},
     select::{Select, SelectEvent, SelectState},
     slider::{Slider, SliderEvent, SliderState},
-    switch::Switch,
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, PixelsExt as _, Sizable as _,
 };
+
+use crate::controls::Switch;
 use std::{io::Read, sync::Arc};
 
 use super::{SettingsServices, SettingsView};
 
 const AIDEN_ICON_PNG: &[u8] = include_bytes!("../../../../resources/app-icon.png");
 const MONOCHROME_ICON_PNG: &[u8] = include_bytes!("../../../../resources/app-icon-monochrome.png");
-const MODE_PREVIEW_ASPECT_RATIO: f32 = 1.52;
-
+#[allow(dead_code)]
 fn preset_activation_key(key: &str) -> bool {
     matches!(key, "enter" | "space")
 }
@@ -57,102 +57,137 @@ fn focus_button(id: SharedString, window: &mut Window, cx: &mut gpui::App) {
 
 fn mode_preview(
     mode: Mode,
-    config: &AppearanceConfig,
+    active: bool,
     theme: &gpui_component::theme::Theme,
 ) -> impl IntoElement {
-    let variant = match mode {
-        Mode::Dark => &config.dark,
-        Mode::System | Mode::Light => &config.light,
+    let light_canvas: gpui::Hsla = gpui::rgb(0xf5f6f8).into();
+    let dark_canvas: gpui::Hsla = gpui::rgb(0x25282d).into();
+    let light_toolbar: gpui::Hsla = gpui::rgb(0xc6c8cc).into();
+    let dark_toolbar: gpui::Hsla = gpui::rgb(0x72767c).into();
+    let light_sidebar: gpui::Hsla = gpui::rgb(0xe8e9eb).into();
+    let dark_sidebar: gpui::Hsla = gpui::rgb(0x30343a).into();
+    let light_content: gpui::Hsla = gpui::rgb(0xffffff).into();
+    let dark_content: gpui::Hsla = gpui::rgb(0x17191d).into();
+    let light_line: gpui::Hsla = gpui::rgb(0xd9dbde).into();
+    let dark_line: gpui::Hsla = gpui::rgb(0x5a5e65).into();
+    let (canvas, toolbar, sidebar, content, line) = match mode {
+        Mode::Light | Mode::System => (
+            light_canvas,
+            light_toolbar,
+            light_sidebar,
+            light_content,
+            light_line,
+        ),
+        Mode::Dark => (
+            dark_canvas,
+            dark_toolbar,
+            dark_sidebar,
+            dark_content,
+            dark_line,
+        ),
     };
-    let canvas = hsla_from_hex(&variant.background).unwrap_or(theme.background);
-    let ink = hsla_from_hex(&variant.foreground).unwrap_or(theme.foreground);
-    let accent = hsla_from_hex(&variant.accent).unwrap_or(theme.accent);
-    let system_dark_canvas = hsla_from_hex(&config.dark.background).unwrap_or(theme.background);
-    let system_dark_ink = hsla_from_hex(&config.dark.foreground).unwrap_or(theme.foreground);
-    let system_dark_accent = hsla_from_hex(&config.dark.accent).unwrap_or(theme.accent);
-    let preview_height = 76.0;
     v_flex()
         .relative()
         .w_full()
-        .h(px(preview_height))
-        .min_w(px(preview_height * MODE_PREVIEW_ASPECT_RATIO))
-        .rounded_lg()
+        .min_w(px(0.))
+        .h(px(136.))
+        .rounded(px(12.))
         .overflow_hidden()
         .border_1()
-        .border_color(theme.border)
+        .border_color(if active { theme.accent } else { theme.border })
         .bg(canvas)
-        .child(
-            h_flex()
-                .h(px(16.))
-                .px_1p5()
-                .gap_1()
-                .bg(accent.alpha(0.16))
-                .children((0..3).map(|_| div().size(px(4.)).rounded_full().bg(accent))),
-        )
-        .child(
-            h_flex()
-                .flex_1()
-                .child(div().w(px(28.)).h_full().bg(accent.alpha(0.10)))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .p_2()
-                        .gap_1()
-                        .child(div().h(px(4.)).w_3_4().rounded_full().bg(ink.alpha(0.34)))
-                        .child(div().h(px(4.)).w_1_2().rounded_full().bg(ink.alpha(0.22)))
-                        .child(div().h(px(4.)).w_2_3().rounded_full().bg(ink.alpha(0.22))),
-                ),
-        )
+        .when(active, |el| el.shadow_sm())
         .when(mode == Mode::System, |el| {
             el.child(
-                v_flex()
+                div()
                     .absolute()
                     .top_0()
                     .right_0()
                     .bottom_0()
                     .w_1_2()
-                    .bg(system_dark_canvas)
-                    .border_l_1()
-                    .border_color(theme.border)
-                    .child(
-                        h_flex()
-                            .h(px(16.))
-                            .px_1p5()
-                            .gap_1()
-                            .bg(system_dark_accent.alpha(0.16))
-                            .children(
-                                (0..3).map(|_| {
-                                    div().size(px(4.)).rounded_full().bg(system_dark_accent)
-                                }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .child(div().w(px(14.)).h_full().bg(system_dark_accent.alpha(0.10)))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .p_2()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .h(px(4.))
-                                            .w_3_4()
-                                            .rounded_full()
-                                            .bg(system_dark_ink.alpha(0.34)),
-                                    )
-                                    .child(
-                                        div()
-                                            .h(px(4.))
-                                            .w_1_2()
-                                            .rounded_full()
-                                            .bg(system_dark_ink.alpha(0.22)),
-                                    ),
-                            ),
-                    ),
+                    .bg(dark_canvas),
             )
         })
+        .child(
+            h_flex()
+                .absolute()
+                .top(px(17.))
+                .left(relative(0.31))
+                .w(relative(0.38))
+                .h(px(5.))
+                .overflow_hidden()
+                .rounded_full()
+                .child(div().w_full().h_full().bg(toolbar))
+                .when(mode == Mode::System, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .w_1_2()
+                            .bg(dark_toolbar),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .absolute()
+                .top(px(31.))
+                .left(relative(0.08))
+                .bottom_0()
+                .w(relative(0.30))
+                .rounded_tl(px(8.))
+                .bg(sidebar),
+        )
+        .child(
+            v_flex()
+                .absolute()
+                .top(px(31.))
+                .left(relative(0.38))
+                .right(relative(0.08))
+                .bottom_0()
+                .gap(px(7.))
+                .pt(px(14.))
+                .px(px(10.))
+                .rounded_tl(px(8.))
+                .bg(content)
+                .when(mode == Mode::System, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .w(relative(0.78))
+                            .bg(dark_content),
+                    )
+                })
+                .child(
+                    div()
+                        .relative()
+                        .h(px(4.))
+                        .w(relative(0.62))
+                        .rounded_full()
+                        .bg(line),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .h(px(4.))
+                        .w(relative(0.82))
+                        .rounded_full()
+                        .bg(line),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .h(px(4.))
+                        .w(relative(0.48))
+                        .rounded_full()
+                        .bg(line),
+                ),
+        )
 }
 
 /// The Appearance panel follows the renderer's two compact breakpoints. Keep
@@ -183,7 +218,7 @@ fn hsla_from_hex(hex: &str) -> Option<gpui::Hsla> {
         return None;
     }
     let value = u32::from_str_radix(hex, 16).ok()?;
-    Some(gpui::rgba(value).into())
+    Some(gpui::rgb(value).into())
 }
 
 /// Whether a persisted variant selection matches a preset id.
@@ -200,6 +235,7 @@ fn selection_matches(selection: Selection, preset: PresetId) -> bool {
 pub struct AppearanceState {
     /// Scheme currently being edited. This is intentionally independent from
     /// the effective system scheme so a user can prepare the other appearance.
+    #[allow(dead_code)]
     editing_scheme: Scheme,
     color_inputs: Vec<ColorInputs>,
     invalid_color: Option<String>,
@@ -230,7 +266,6 @@ enum TextSizeKind {
 
 #[derive(Clone, Copy)]
 struct NumberControlArgs {
-    label: &'static str,
     id: &'static str,
     value: u8,
     min: u8,
@@ -484,6 +519,15 @@ impl AppearanceState {
         config.pointer_cursors = !config.pointer_cursors;
         self.mutate(config, false, services, cx);
     }
+    fn toggle_font_smoothing(
+        &mut self,
+        services: &SettingsServices,
+        cx: &mut Context<SettingsView>,
+    ) {
+        let mut config = self.edit_variant(services, cx);
+        config.font_smoothing = !config.font_smoothing;
+        self.mutate(config, false, services, cx);
+    }
     fn set_diff_markers(
         &mut self,
         value: DiffMarkers,
@@ -636,6 +680,7 @@ impl AppearanceState {
             .map(str::to_string)
     }
 
+    #[allow(dead_code)]
     fn variant<'a>(
         &self,
         config: &'a AppearanceConfig,
@@ -659,16 +704,8 @@ impl SettingsView {
         // `cx`-capturing row/button closures below.
         let theme = cx.theme().clone();
         let config = self.appearance.config(&self.services, cx);
-        let native_supported = self
-            .services
-            .appearance_service
-            .read(cx)
-            .native_appearance_supported();
         let layout = appearance_layout_for_width(window.viewport_size().width.as_f32());
         let pointer = crate::services::appearance::pointer_cursors_enabled(cx);
-        let presets = theme_presets();
-        let editing_scheme = self.appearance.editing_scheme;
-        let variant = self.appearance.variant(&config).clone();
         self.appearance
             .ensure_editor_controls(Scheme::Light, window, cx, &config);
         self.appearance
@@ -680,9 +717,11 @@ impl SettingsView {
             .gap_4()
             .child(
                 v_flex()
+                    .mx_1()
+                    .mb_2()
                     .child(
                         div()
-                            .text_lg()
+                            .text_size(px(26.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Appearance"),
                     )
@@ -690,10 +729,8 @@ impl SettingsView {
                         div()
                             .text_sm()
                             .text_color(theme.muted_foreground)
-                            .mt_0p5()
-                            .child(
-                            "Shape Aiden's look. Changes apply live and are saved automatically.",
-                        ),
+                            .mt_1p5()
+                            .child("Shape Aiden’s light and dark interfaces independently. Changes apply live."),
                     ),
             )
             .when_some(
@@ -734,12 +771,13 @@ impl SettingsView {
             .child(
                 v_flex()
                     .w_full()
-                    .gap_2()
+                    .gap_3()
                     .child(
                         div()
+                            .mx_1()
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Theme mode"),
+                            .child("Theme"),
                     )
                     .child(
                         h_flex().w_full().gap(px(12.)).when(layout == AppearanceLayout::StackPanes, |el| el.flex_col()).children(
@@ -751,30 +789,37 @@ impl SettingsView {
                             .into_iter()
                             .map(|(mode, icon)| {
                                 let active = config.mode == mode;
-                                let mut button = Button::new(SharedString::from(
-                                    format!("appearance-mode-{:?}", mode).to_ascii_lowercase(),
-                                ))
-                                .outline();
-                                if active {
-                                    button = button.primary();
-                                }
-                                button
+                                v_flex()
+                                    .id(SharedString::from(
+                                        format!("appearance-mode-{:?}", mode).to_ascii_lowercase(),
+                                    ))
                                     .flex_1()
+                                    .min_w(px(0.))
                                     .flex_col()
                                     .gap_2()
                                     .tab_stop(active)
                                     .when(pointer, |el| el.cursor_pointer())
-                                    // The renderer's preview cards use a 1.52
-                                    // aspect ratio; this is the matching
-                                    // compact-height floor for the retained
-                                    // GPUI grid at its 672 px content cap.
-                                    .min_h(px(126.))
-                                    .child(mode_preview(mode, &config, &theme))
-                                    .child(h_flex().gap_1().items_center().child(Icon::new(icon).small()).child(match mode {
-                                        Mode::System => "System",
-                                        Mode::Light => "Light",
-                                        Mode::Dark => "Dark",
-                                    }))
+                                    .child(mode_preview(mode, active, &theme))
+                                    .child(
+                                        h_flex()
+                                            .w_full()
+                                            .justify_center()
+                                            .gap_1()
+                                            .items_center()
+                                            .text_size(px(13.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(if active {
+                                                theme.foreground
+                                            } else {
+                                                theme.muted_foreground
+                                            })
+                                            .child(Icon::new(icon).small())
+                                            .child(match mode {
+                                                Mode::System => "System",
+                                                Mode::Light => "Light",
+                                                Mode::Dark => "Dark",
+                                            }),
+                                    )
                                     .on_click(cx.listener(move |this, _event, _window, cx| {
                                         this.appearance.set_mode(mode, &this.services, cx);
                                     }))
@@ -785,132 +830,29 @@ impl SettingsView {
                                     }))
                             }),
                         ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Theme editor"),
                     )
-                    .child(self.scheme_overview_cards(&config, layout, cx))
-                    .child(h_flex().w_full().gap_2().when(layout != AppearanceLayout::Desktop, |el| el.flex_col()).children([Scheme::Light, Scheme::Dark].into_iter().map(|scheme| {
-                        let active = editing_scheme == scheme;
-                        let mut button = Button::new(SharedString::from(format!("appearance-edit-{scheme:?}").to_ascii_lowercase())).outline().small();
-                        if active { button = button.primary(); }
-                        button.label(match scheme { Scheme::Light => "Light", Scheme::Dark => "Dark" })
-                            .on_click(cx.listener(move |this, _, _, cx| { this.appearance.editing_scheme = scheme; cx.notify(); }))
-                    })))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        "Light and Dark remain separate drafts. Safe changes preview immediately.",
-                    ))
+                    .child(self.theme_code_panes(&config, &theme, layout))
                     .child(
-                        h_flex()
+                        v_flex()
                             .w_full()
-                            .gap(px(12.))
-                            .when(layout == AppearanceLayout::StackPanes, |el| el.flex_col())
-                            .children(presets.iter().map(|preset| {
-                                let active = selection_matches(variant.preset, preset.id);
-                                self.preset_row(
-                                    preset.id,
-                                    &preset.label,
-                                    editing_scheme,
-                                    active,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                    .child(self.theme_code_panes(&config, &theme, layout)),
-            )
-            .child(h_flex().w_full().gap_3().when(layout == AppearanceLayout::StackPanes, |el| el.flex_col()).child(self.variant_controls(Scheme::Light, &config, &theme, window, cx)).child(self.variant_controls(Scheme::Dark, &config, &theme, window, cx)))
-            .child(self.preference_controls(&config, &theme, cx))
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Reduced motion"),
-                    )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        "Reduce or remove motion throughout the app. System follows the \
-                             macOS accessibility setting (Reduce Motion in System Settings → \
-                             Accessibility → Display).",
-                    ))
-                    .child(
-                        h_flex().w_full().gap_2().children(
-                            [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off]
-                                .into_iter()
-                                .map(|preference| {
-                                    let active = config.reduce_motion == preference;
-                                    let mut button = Button::new(SharedString::from(
-                                        format!("reduce-motion-{:?}", preference)
-                                            .to_ascii_lowercase(),
-                                    ))
-                                    .outline()
-                                    .small();
-                                    if active {
-                                        button = button.primary();
-                                    }
-                                    // "System" shows the live OS probe so the
-                                    // choice is never a mystery.
-                                    let label: &str =
-                                        match (preference, crate::services::appearance::current_system_reduced_motion(cx)) {
-                                            (ReduceMotion::System, true) => "System (reduced)",
-                                            (ReduceMotion::System, false) => "System",
-                                            (ReduceMotion::On, _) => "On",
-                                            (ReduceMotion::Off, _) => "Off",
-                                        };
-                                    button.tab_stop(active).when(pointer, |el| el.cursor_pointer()).label(label).on_click(cx.listener(
-                                        move |this, _event, _window, cx| {
-                                            this.appearance.set_reduce_motion(
-                                                preference,
-                                                &this.services,
-                                                cx,
-                                            );
-                                        },
-                                    )).on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
-                                        let choices = [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off];
-                                        let current = choices.iter().position(|candidate| *candidate == preference).unwrap_or(0);
-                                        if let Some(next) = rove_index(current, event.keystroke.key.as_str(), choices.len()) {
-                                            this.appearance.set_reduce_motion(choices[next], &this.services, cx);
-                                            focus_button(SharedString::from(format!("reduce-motion-{:?}", choices[next]).to_ascii_lowercase()), window, cx);
-                                            cx.stop_propagation();
-                                        }
-                                    }))
-                                }),
-                        ),
+                            .gap_4()
+                            .child(self.variant_controls(
+                                Scheme::Light,
+                                &config,
+                                &theme,
+                                window,
+                                cx,
+                            ))
+                            .child(self.variant_controls(
+                                Scheme::Dark,
+                                &config,
+                                &theme,
+                                window,
+                                cx,
+                            )),
                     ),
             )
-            .child(
-                v_flex().w_full().gap_2().mt_2()
-                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Dock icon"))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        if native_supported {
-                            "Changes apply to the macOS Dock immediately. If applying fails, Aiden keeps the last confirmed native state and offers Retry."
-                        } else {
-                            "Dock icon changes are unavailable on this platform; the saved choice remains pending for macOS."
-                        },
-                    ))
-                    .child(h_flex().gap_2().children([DockIcon::Aiden, DockIcon::Monochrome].into_iter().map(|dock_icon| {
-                        let active = config.dock_icon == dock_icon;
-                        let mut button = Button::new(SharedString::from(format!("appearance-dock-{dock_icon:?}").to_ascii_lowercase())).outline().small();
-                        if active { button = button.primary(); }
-                        let bytes = match dock_icon { DockIcon::Aiden => AIDEN_ICON_PNG, DockIcon::Monochrome => MONOCHROME_ICON_PNG };
-                        button.tab_stop(active && native_supported).disabled(!native_supported).when(pointer && native_supported, |el| el.cursor_pointer()).child(h_flex().gap_2().items_center().child(div().size(px(32.)).rounded_lg().overflow_hidden().child(img(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec()))).size_full())).child(match dock_icon { DockIcon::Aiden => "Aiden", DockIcon::Monochrome => "Monochrome" })).on_click(cx.listener(move |this, _, _, cx| this.appearance.set_dock_icon(dock_icon, &this.services, cx))).on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
-                            let icons = [DockIcon::Aiden, DockIcon::Monochrome];
-                            let current = icons.iter().position(|candidate| *candidate == dock_icon).unwrap_or(0);
-                            if let Some(next) = rove_index(current, event.keystroke.key.as_str(), icons.len()) { this.appearance.set_dock_icon(icons[next], &this.services, cx); focus_button(SharedString::from(format!("appearance-dock-{:?}", icons[next]).to_ascii_lowercase()), window, cx); cx.stop_propagation(); }
-                        }))
-                    }))),
-            )
+            .child(self.preference_controls(&config, &theme, cx))
     }
 
     fn variant_controls(
@@ -918,7 +860,7 @@ impl SettingsView {
         scheme: Scheme,
         config: &AppearanceConfig,
         theme: &gpui_component::theme::Theme,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<SettingsView>,
     ) -> impl IntoElement {
         let variant = match scheme {
@@ -930,71 +872,312 @@ impl SettingsView {
             .color_inputs
             .iter()
             .find(|inputs| inputs.scheme == scheme);
-        let stacked = appearance_layout_for_width(window.viewport_size().width.as_f32())
-            == AppearanceLayout::StackPanes;
-        let color_preview =
-            |label: &'static str, color: &str, input: Option<&gpui::Entity<InputState>>| {
-                let input_for_action = input.cloned();
-                let swatch_id = SharedString::from(
-                    format!("appearance-{scheme:?}-{label}-color")
-                        .to_ascii_lowercase()
-                        .replace(' ', "-"),
-                );
+        let color_row = |label: &'static str,
+                         color: &str,
+                         input: Option<&gpui::Entity<InputState>>,
+                         separator: bool| {
+            let input_for_action = input.cloned();
+            let color = color.to_string();
+            div()
+                .relative()
+                .w_full()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_h(px(52.))
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .px_4()
+                        .py_2()
+                        .child(div().text_sm().child(label))
+                        .child(
+                            h_flex()
+                                .w(px(164.))
+                                .h(px(31.))
+                                .items_center()
+                                .overflow_hidden()
+                                .rounded(px(11.))
+                                .border_1()
+                                .border_color(theme.border)
+                                .bg(theme.background)
+                                .child(
+                                    div()
+                                        .id(SharedString::from(
+                                            format!("appearance-{scheme:?}-{label}-swatch")
+                                                .to_ascii_lowercase(),
+                                        ))
+                                        .size(px(31.))
+                                        .flex_none()
+                                        .border_r_1()
+                                        .border_color(theme.border)
+                                        .bg(hsla_from_hex(&color).unwrap_or(theme.border))
+                                        .on_click(move |_, window, cx| {
+                                            if let Some(input) = &input_for_action {
+                                                input.update(cx, |input, cx| {
+                                                    input.focus(window, cx)
+                                                });
+                                            }
+                                        }),
+                                )
+                                .child(match input {
+                                    Some(input) => Input::new(input)
+                                        .small()
+                                        .appearance(false)
+                                        .bordered(false)
+                                        .focus_bordered(false)
+                                        .into_any_element(),
+                                    None => div()
+                                        .px_2()
+                                        .font_family("monospace")
+                                        .text_xs()
+                                        .child(color)
+                                        .into_any_element(),
+                                }),
+                        ),
+                )
+                .when(separator, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_4()
+                            .right_4()
+                            .h(px(1.))
+                            .bg(theme.border),
+                    )
+                })
+                .into_any_element()
+        };
+        let standard_row = |label: &'static str, control: AnyElement, separator: bool| {
+            div()
+                .relative()
+                .w_full()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_h(px(52.))
+                        .items_center()
+                        .justify_between()
+                        .gap_4()
+                        .px_4()
+                        .py_2()
+                        .child(div().text_sm().child(label))
+                        .child(control),
+                )
+                .when(separator, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_4()
+                            .right_4()
+                            .h(px(1.))
+                            .bg(theme.border),
+                    )
+                })
+                .into_any_element()
+        };
+        let preset_options = theme_presets();
+        let preset_label = preset_options
+            .iter()
+            .find(|preset| selection_matches(variant.preset, preset.id))
+            .map_or_else(|| "Custom".to_string(), |preset| preset.label.clone());
+        let preset_settings = cx.entity();
+        let preset_button =
+            Button::new(SharedString::from(format!("appearance-{scheme:?}-preset")))
+                .small()
+                .w(px(126.))
+                .ml_1()
+                .child(
+                    div()
+                        .size(px(17.))
+                        .flex_none()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(hsla_from_hex(&variant.accent).unwrap_or(theme.accent)),
+                )
+                .child(div().truncate().child(preset_label))
+                .dropdown_caret(true)
+                .dropdown_menu(move |menu, _window, _cx| {
+                    preset_options.iter().fold(menu, |menu, preset| {
+                        let settings = preset_settings.clone();
+                        let preset_id = preset.id;
+                        menu.item(PopupMenuItem::new(preset.label.clone()).on_click(
+                            move |_, _window, cx| {
+                                settings.update(cx, |this, cx| {
+                                    this.appearance.set_preset(
+                                        scheme,
+                                        preset_id,
+                                        &this.services,
+                                        cx,
+                                    );
+                                });
+                            },
+                        ))
+                    })
+                });
+        let ui_font = self
+            .appearance
+            .ui_font_selects
+            .iter()
+            .find(|(candidate, _)| *candidate == scheme)
+            .map(|(_, state)| Select::new(state).small().w(px(238.)).into_any_element())
+            .unwrap_or_else(|| div().into_any_element());
+        let code_font = self
+            .appearance
+            .code_font_selects
+            .iter()
+            .find(|(candidate, _)| *candidate == scheme)
+            .map(|(_, state)| Select::new(state).small().w(px(238.)).into_any_element())
+            .unwrap_or_else(|| div().into_any_element());
+        let contrast = h_flex()
+            .w(px(230.))
+            .gap_3()
+            .items_center()
+            .when_some(
+                self.appearance
+                    .contrast_sliders
+                    .iter()
+                    .find(|(candidate, _)| *candidate == scheme)
+                    .map(|(_, state)| state.clone()),
+                |el, state| el.child(Slider::new(&state).flex_1()),
+            )
+            .child(
+                div()
+                    .w(px(34.))
+                    .text_right()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(variant.contrast.to_string()),
+            )
+            .into_any_element();
+
+        v_flex()
+            .w_full()
+            .min_w(px(0.))
+            .overflow_hidden()
+            .rounded(px(16.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover.opacity(0.72))
+            .child(
                 h_flex()
-                    .when(stacked, |el| el.flex_col().items_start())
+                    .w_full()
+                    .min_h(px(52.))
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .min_h(px(52.))
-                    .child(div().text_sm().child(label))
+                    .px(px(14.))
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme.border)
                     .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Button::new(swatch_id)
-                                    .small()
-                                    .outline()
-                                    .label("Edit")
-                                    .disabled(input_for_action.is_none())
-                                    .child(
-                                        div()
-                                            .size(px(20.))
-                                            .rounded_sm()
-                                            .bg(hsla_from_hex(color).unwrap_or(theme.border)),
-                                    )
-                                    .on_click(move |_, window, cx| {
-                                        if let Some(input) = &input_for_action {
-                                            input.update(cx, |input, cx| input.focus(window, cx));
-                                        }
-                                    }),
-                            )
-                            .child(match input {
-                                Some(input) => Input::new(input).small().into_any_element(),
-                                None => div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(color.to_string())
-                                    .into_any_element(),
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(match scheme {
+                                Scheme::Light => "Light theme",
+                                Scheme::Dark => "Dark theme",
                             }),
                     )
-            };
-        v_flex().w_full().gap_2().p_3().rounded(px(16.)).border_1().border_color(theme.border)
-            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(format!("{} palette", match scheme { Scheme::Light => "Light", Scheme::Dark => "Dark" })))
-            .child(color_preview("Accent", &variant.accent, inputs.map(|i| &i.accent)))
-            .child(color_preview("Background", &variant.background, inputs.map(|i| &i.background)))
-            .child(color_preview("Foreground", &variant.foreground, inputs.map(|i| &i.foreground)))
-            .when_some(self.appearance.invalid_color.clone(), |el, error| el.child(div().text_xs().text_color(theme.danger).child(error)))
-            .when_some(self.appearance.feedback.clone(), |el, feedback| el.child(div().text_xs().text_color(theme.success).child(feedback)))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("Enter #RRGGBB values directly or import a theme file. Malformed or unsafe colors are never previewed or saved."))
-            .child(h_flex().items_center().justify_between().gap_3().child(div().text_sm().child("UI font")).when_some(self.appearance.ui_font_selects.iter().find(|(candidate, _)| *candidate == scheme).map(|(_, state)| state.clone()), |el, state| el.child(Select::new(&state).small().w(px(150.)))))
-            .child(h_flex().items_center().justify_between().gap_3().child(div().text_sm().child("Code font")).when_some(self.appearance.code_font_selects.iter().find(|(candidate, _)| *candidate == scheme).map(|(_, state)| state.clone()), |el, state| el.child(Select::new(&state).small().w(px(150.)))))
-            .child(h_flex().items_center().justify_between().child(div().text_sm().child("Sidebar translucency")).child(Switch::new(SharedString::from(format!("appearance-sidebar-translucency-{scheme:?}").to_ascii_lowercase())).checked(variant.translucent_sidebar).on_click(cx.listener(move |this, _, _, cx| this.appearance.toggle_sidebar(scheme, &this.services, cx)))))
-            .child(v_flex().gap_1().child(h_flex().justify_between().child(div().text_sm().child("Contrast")).child(div().text_xs().child(variant.contrast.to_string()))).when_some(self.appearance.contrast_sliders.iter().find(|(candidate, _)| *candidate == scheme).map(|(_, state)| state.clone()), |el, state| el.child(Slider::new(&state).w_full())))
-            .child(Button::new(SharedString::from(format!("appearance-copy-theme-{scheme:?}").to_ascii_lowercase())).small().outline().label("Copy theme JSON").on_click(cx.listener(move |this, _, _, cx| this.appearance.copy_theme(scheme, &this.services, cx))))
-            .child(Button::new(SharedString::from(format!("appearance-import-theme-{scheme:?}").to_ascii_lowercase())).small().outline().label("Import theme JSON").on_click(cx.listener(move |this, _, window, cx| this.appearance.import_theme(scheme, window, &this.services, cx))))
+                    .child(
+                        h_flex()
+                            .min_w(px(0.))
+                            .flex_wrap()
+                            .gap_1()
+                            .items_center()
+                            .justify_end()
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "appearance-import-theme-{scheme:?}"
+                                )))
+                                .small()
+                                .ghost()
+                                .icon(Icon::default().path("native-icons/settings/file-up.svg"))
+                                .label("Import")
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        this.appearance.import_theme(
+                                            scheme,
+                                            window,
+                                            &this.services,
+                                            cx,
+                                        )
+                                    },
+                                )),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "appearance-copy-theme-{scheme:?}"
+                                )))
+                                .small()
+                                .ghost()
+                                .icon(IconName::Copy)
+                                .label("Copy theme")
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.appearance.copy_theme(scheme, &this.services, cx)
+                                    },
+                                )),
+                            )
+                            .child(preset_button),
+                    ),
+            )
+            .children([
+                color_row("Accent", &variant.accent, inputs.map(|i| &i.accent), true),
+                color_row(
+                    "Background",
+                    &variant.background,
+                    inputs.map(|i| &i.background),
+                    true,
+                ),
+                color_row(
+                    "Foreground",
+                    &variant.foreground,
+                    inputs.map(|i| &i.foreground),
+                    true,
+                ),
+                standard_row("UI font", ui_font, true),
+                standard_row("Code font", code_font, true),
+                standard_row(
+                    "Translucent sidebar",
+                    Switch::new(SharedString::from(format!(
+                        "appearance-sidebar-translucency-{scheme:?}"
+                    )))
+                    .checked(variant.translucent_sidebar)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.appearance.toggle_sidebar(scheme, &this.services, cx)
+                    }))
+                    .into_any_element(),
+                    true,
+                ),
+                standard_row("Contrast", contrast, false),
+            ])
+            .when_some(self.appearance.invalid_color.clone(), |el, error| {
+                el.child(
+                    div()
+                        .px_4()
+                        .pb_3()
+                        .text_xs()
+                        .text_color(theme.danger)
+                        .child(error),
+                )
+            })
+            .when_some(self.appearance.feedback.clone(), |el, feedback| {
+                el.child(
+                    div()
+                        .px_4()
+                        .pb_3()
+                        .text_xs()
+                        .text_color(theme.success)
+                        .child(feedback),
+                )
+            })
     }
 
+    #[allow(dead_code)]
     fn scheme_overview_cards(
         &self,
         config: &AppearanceConfig,
@@ -1085,66 +1268,258 @@ impl SettingsView {
         theme: &gpui_component::theme::Theme,
         cx: &mut Context<SettingsView>,
     ) -> impl IntoElement {
-        v_flex().w_full().gap_2().p_3().rounded(px(16.)).border_1().border_color(theme.border)
-            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Preferences"))
-            .child(
-                h_flex().items_center().justify_between().child(div().text_sm().child("Pointer cursors"))
-                    .child(Switch::new("appearance-pointer-cursors").checked(config.pointer_cursors).on_click(cx.listener(|this, _checked, _window, cx| this.appearance.toggle_pointer(&this.services, cx)))),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(div().text_sm().child("Diff markers"))
-                    .child(
-                        h_flex()
-                            .gap_3()
+        let native_supported = self
+            .services
+            .appearance_service
+            .read(cx)
+            .native_appearance_supported();
+        let row = |id: &'static str,
+                   label: &'static str,
+                   description: &'static str,
+                   control: AnyElement,
+                   separator: bool| {
+            div()
+                .id(id)
+                .relative()
+                .w_full()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_h(px(64.))
+                        .items_center()
+                        .justify_between()
+                        .gap_5()
+                        .px_4()
+                        .py_2()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(label))
+                                .child(
+                                    div()
+                                        .mt_0p5()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(description),
+                                ),
+                        )
+                        .child(control),
+                )
+                .when(separator, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_4()
+                            .right_4()
+                            .h(px(1.))
+                            .bg(theme.border),
+                    )
+                })
+                .into_any_element()
+        };
+
+        let dock_controls = h_flex()
+            .gap_2()
+            .children(
+                [DockIcon::Aiden, DockIcon::Monochrome]
+                    .into_iter()
+                    .map(|dock_icon| {
+                        let active = config.dock_icon == dock_icon;
+                        let bytes = match dock_icon {
+                            DockIcon::Aiden => AIDEN_ICON_PNG,
+                            DockIcon::Monochrome => MONOCHROME_ICON_PNG,
+                        };
+                        let mut button = Button::new(SharedString::from(
+                            format!("appearance-dock-{dock_icon:?}").to_ascii_lowercase(),
+                        ))
+                        .small()
+                        .outline();
+                        if active {
+                            button = button.primary();
+                        }
+                        button
+                            .tab_stop(active && native_supported)
+                            .disabled(!native_supported)
+                            .tooltip(match dock_icon {
+                                DockIcon::Aiden => "Color Aiden Dock icon",
+                                DockIcon::Monochrome => "Monochrome Aiden Dock icon",
+                            })
                             .child(
-                                Radio::new("appearance-diff-symbols")
-                                    .label("Symbols")
-                                    .checked(config.diff_markers == DiffMarkers::Symbols)
-                                    .tab_stop(config.diff_markers == DiffMarkers::Symbols)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.appearance.set_diff_markers(
-                                            DiffMarkers::Symbols,
-                                            &this.services,
-                                            cx,
-                                        )
-                                    })),
+                                div().size(px(32.)).rounded_lg().overflow_hidden().child(
+                                    img(Arc::new(Image::from_bytes(
+                                        ImageFormat::Png,
+                                        bytes.to_vec(),
+                                    )))
+                                    .size_full(),
+                                ),
                             )
-                            .child(
-                                Radio::new("appearance-diff-color")
-                                    .label("Color only")
-                                    .checked(config.diff_markers == DiffMarkers::Color)
-                                    .tab_stop(config.diff_markers == DiffMarkers::Color)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.appearance.set_diff_markers(
-                                            DiffMarkers::Color,
-                                            &this.services,
-                                            cx,
-                                        )
-                                    })),
-                            ),
-                    ),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.appearance.set_dock_icon(dock_icon, &this.services, cx)
+                            }))
+                    }),
             )
-            .child(self.number_control(NumberControlArgs {
-                label: "UI text size",
-                id: "appearance-ui-size",
-                value: config.ui_font_size,
-                min: 12,
-                max: 18,
-                kind: TextSizeKind::Ui,
-            }, cx))
-            .child(self.number_control(NumberControlArgs {
-                label: "Code text size",
-                id: "appearance-code-size",
-                value: config.code_font_size,
-                min: 10,
-                max: 18,
-                kind: TextSizeKind::Code,
-            }, cx))
-            .child(div().text_xs().text_color(theme.muted_foreground).child("Font smoothing has no GPUI runtime hook and is unavailable rather than misrepresented."))
+            .into_any_element();
+
+        let reduce_motion = h_flex()
+            .gap_1()
+            .p_0p5()
+            .rounded(px(10.))
+            .bg(theme.muted)
+            .children(
+                [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off]
+                    .into_iter()
+                    .map(|preference| {
+                        let active = config.reduce_motion == preference;
+                        let mut button = Button::new(SharedString::from(
+                            format!("reduce-motion-{preference:?}").to_ascii_lowercase(),
+                        ))
+                        .small()
+                        .ghost()
+                        .label(match preference {
+                            ReduceMotion::System => "System",
+                            ReduceMotion::On => "On",
+                            ReduceMotion::Off => "Off",
+                        });
+                        if active {
+                            button = button.outline();
+                        }
+                        button.on_click(cx.listener(move |this, _, _, cx| {
+                            this.appearance
+                                .set_reduce_motion(preference, &this.services, cx);
+                        }))
+                    }),
+            )
+            .into_any_element();
+
+        let diff_markers = h_flex()
+            .gap_1()
+            .p_0p5()
+            .rounded(px(10.))
+            .bg(theme.muted)
+            .children(
+                [DiffMarkers::Color, DiffMarkers::Symbols]
+                    .into_iter()
+                    .map(|value| {
+                        let active = config.diff_markers == value;
+                        let mut button =
+                            Button::new(SharedString::from(format!("appearance-diff-{value:?}")))
+                                .small()
+                                .ghost()
+                                .label(match value {
+                                    DiffMarkers::Color => "Color",
+                                    DiffMarkers::Symbols => "+/−",
+                                });
+                        if active {
+                            button = button.outline();
+                        }
+                        button.on_click(cx.listener(move |this, _, _, cx| {
+                            this.appearance.set_diff_markers(value, &this.services, cx)
+                        }))
+                    }),
+            )
+            .into_any_element();
+
+        v_flex()
+            .w_full()
+            .mt(px(14.))
+            .child(
+                div()
+                    .mb_3()
+                    .px_1()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Preferences"),
+            )
+            .child(
+                v_flex()
+                    .w_full()
+                    .overflow_hidden()
+                    .rounded(px(16.))
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.popover.opacity(0.72))
+                    .child(row(
+                        "appearance-pointer-row",
+                        "Use pointer cursors",
+                        "Show a pointer when hovering over interactive elements.",
+                        Switch::new("appearance-pointer-cursors")
+                            .checked(config.pointer_cursors)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.appearance.toggle_pointer(&this.services, cx)
+                            }))
+                            .into_any_element(),
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-dock-row",
+                        "Dock icon",
+                        "Choose the icon Aiden uses in the macOS Dock.",
+                        dock_controls,
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-motion-row",
+                        "Reduce motion",
+                        "Reduce animations or match the macOS preference.",
+                        reduce_motion,
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-ui-size-row",
+                        "UI font size",
+                        "Adjust the base size used throughout Aiden.",
+                        self.number_control(
+                            NumberControlArgs {
+                                id: "appearance-ui-size",
+                                value: config.ui_font_size,
+                                min: 12,
+                                max: 18,
+                                kind: TextSizeKind::Ui,
+                            },
+                            cx,
+                        )
+                        .into_any_element(),
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-code-size-row",
+                        "Code font size",
+                        "Adjust code in chats, diffs, files, and terminals.",
+                        self.number_control(
+                            NumberControlArgs {
+                                id: "appearance-code-size",
+                                value: config.code_font_size,
+                                min: 10,
+                                max: 18,
+                                kind: TextSizeKind::Code,
+                            },
+                            cx,
+                        )
+                        .into_any_element(),
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-diff-row",
+                        "Diff markers",
+                        "Show changes with color alone or add explicit +/− markers.",
+                        diff_markers,
+                        true,
+                    ))
+                    .child(row(
+                        "appearance-font-smoothing-row",
+                        "Font smoothing",
+                        "Use native macOS font anti-aliasing.",
+                        Switch::new("appearance-font-smoothing")
+                            .checked(config.font_smoothing)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.appearance.toggle_font_smoothing(&this.services, cx)
+                            }))
+                            .into_any_element(),
+                        false,
+                    )),
+            )
     }
 
     /// A compact number-like control with explicit reversible bounds. GPUI's
@@ -1156,7 +1531,6 @@ impl SettingsView {
         cx: &mut Context<SettingsView>,
     ) -> impl IntoElement {
         let NumberControlArgs {
-            label,
             id,
             value,
             min,
@@ -1165,51 +1539,40 @@ impl SettingsView {
         } = args;
         h_flex()
             .items_center()
-            .justify_between()
             .gap_2()
-            .child(div().text_sm().child(label))
             .child(
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        Button::new(SharedString::from(format!("{id}-decrease")))
-                            .small()
-                            .outline()
-                            .label("−")
-                            .disabled(value <= min)
-                            .on_click(cx.listener(move |this, _, _, cx| match kind {
-                                TextSizeKind::Ui => {
-                                    this.appearance.adjust_ui_size(-1, &this.services, cx)
-                                }
-                                TextSizeKind::Code => {
-                                    this.appearance.adjust_code_size(-1, &this.services, cx)
-                                }
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("{id}-value")))
-                            .min_w(px(32.))
-                            .text_center()
-                            .text_sm()
-                            .child(value.to_string()),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("{id}-increase")))
-                            .small()
-                            .outline()
-                            .label("+")
-                            .disabled(value >= max)
-                            .on_click(cx.listener(move |this, _, _, cx| match kind {
-                                TextSizeKind::Ui => {
-                                    this.appearance.adjust_ui_size(1, &this.services, cx)
-                                }
-                                TextSizeKind::Code => {
-                                    this.appearance.adjust_code_size(1, &this.services, cx)
-                                }
-                            })),
-                    ),
+                Button::new(SharedString::from(format!("{id}-decrease")))
+                    .small()
+                    .outline()
+                    .label("−")
+                    .disabled(value <= min)
+                    .on_click(cx.listener(move |this, _, _, cx| match kind {
+                        TextSizeKind::Ui => this.appearance.adjust_ui_size(-1, &this.services, cx),
+                        TextSizeKind::Code => {
+                            this.appearance.adjust_code_size(-1, &this.services, cx)
+                        }
+                    })),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("{id}-value")))
+                    .min_w(px(40.))
+                    .text_center()
+                    .text_sm()
+                    .child(format!("{value}px")),
+            )
+            .child(
+                Button::new(SharedString::from(format!("{id}-increase")))
+                    .small()
+                    .outline()
+                    .label("+")
+                    .disabled(value >= max)
+                    .on_click(cx.listener(move |this, _, _, cx| match kind {
+                        TextSizeKind::Ui => this.appearance.adjust_ui_size(1, &this.services, cx),
+                        TextSizeKind::Code => {
+                            this.appearance.adjust_code_size(1, &this.services, cx)
+                        }
+                    })),
             )
     }
 
@@ -1222,10 +1585,16 @@ impl SettingsView {
         theme: &gpui_component::theme::Theme,
         layout: AppearanceLayout,
     ) -> impl IntoElement {
+        let stacked = layout == AppearanceLayout::StackPanes;
         h_flex()
             .w_full()
-            .gap(px(12.))
-            .when(layout == AppearanceLayout::StackPanes, |el| el.flex_col())
+            .mt(px(10.))
+            .mb(px(6.))
+            .overflow_hidden()
+            .rounded(px(13.))
+            .border_1()
+            .border_color(theme.border)
+            .when(stacked, |el| el.flex_col())
             .children([Scheme::Light, Scheme::Dark].into_iter().map(|scheme| {
                 let variant = match scheme {
                     Scheme::Light => &config.light,
@@ -1233,62 +1602,66 @@ impl SettingsView {
                 };
                 let background = hsla_from_hex(&variant.background).unwrap_or(theme.background);
                 let foreground = hsla_from_hex(&variant.foreground).unwrap_or(theme.foreground);
-                let accent = hsla_from_hex(&variant.accent).unwrap_or(theme.accent);
+                let marker = match scheme {
+                    Scheme::Light => theme.danger,
+                    Scheme::Dark => theme.success,
+                };
+                let lines = vec![
+                    "const themePreview: ThemeConfig = {".to_string(),
+                    format!(
+                        "  surface: \"{}\",",
+                        match scheme {
+                            Scheme::Light => "sidebar",
+                            Scheme::Dark => "sidebar-elevated",
+                        }
+                    ),
+                    format!("  accent: \"{}\",", variant.accent),
+                    format!("  contrast: {},", variant.contrast),
+                    "};".to_string(),
+                ];
                 v_flex()
-                    .flex_1()
-                    .min_h(px(132.))
-                    .p_3()
-                    .gap_2()
-                    .rounded(px(13.))
+                    .min_w(px(0.))
+                    .when(stacked, |el| el.w_full())
+                    .when(!stacked, |el| el.w_1_2().flex_none())
+                    .py_1()
                     .bg(background)
-                    .border_1()
-                    .border_color(theme.border)
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(match scheme {
-                                Scheme::Light => "Light editor",
-                                Scheme::Dark => "Dark editor",
-                            }),
-                    )
-                    .child(
+                    .text_color(foreground)
+                    .font_family("monospace")
+                    .text_size(px(11.))
+                    .when(scheme == Scheme::Dark && !stacked, |el| {
+                        el.border_l_1().border_color(theme.border)
+                    })
+                    .when(scheme == Scheme::Dark && stacked, |el| {
+                        el.border_t_1().border_color(theme.border)
+                    })
+                    .children(lines.into_iter().enumerate().map(|(index, line)| {
+                        let highlighted = (1..=3).contains(&index);
                         h_flex()
                             .w_full()
-                            .flex_1()
-                            .overflow_hidden()
-                            .font_family("monospace")
-                            .text_xs()
-                            .text_color(foreground)
+                            .min_h(px(22.))
+                            .when(highlighted, |el| {
+                                el.border_l_3()
+                                    .border_color(marker)
+                                    .bg(marker.opacity(0.13))
+                            })
+                            .when(!highlighted, |el| el.border_l_3().border_color(background))
                             .child(
-                                v_flex()
-                                    .flex_1()
-                                    .p_2()
-                                    .gap_1()
-                                    .bg(theme.danger.alpha(0.10))
-                                    .child(
-                                        div().text_color(theme.danger).child("− const old = true;"),
-                                    )
-                                    .child(div().child("  fn render() {"))
-                                    .child(div().child("    panel.open();"))
-                                    .child(div().child("  }")),
+                                div()
+                                    .w(px(30.))
+                                    .pr_2()
+                                    .border_r_1()
+                                    .border_color(theme.border)
+                                    .text_right()
+                                    .text_color(theme.muted_foreground)
+                                    .child((index + 1).to_string()),
                             )
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .p_2()
-                                    .gap_1()
-                                    .bg(accent.alpha(0.10))
-                                    .child(div().text_color(accent).child("+ const ready = true;"))
-                                    .child(div().child("  fn render() {"))
-                                    .child(div().child("    panel.open();"))
-                                    .child(div().child("  }")),
-                            ),
-                    )
+                            .child(div().min_w(px(0.)).px_2().truncate().child(line))
+                    }))
             }))
     }
 
     /// One preset choice row with a color swatch strip.
+    #[allow(dead_code)]
     fn preset_row(
         &self,
         preset: PresetId,
@@ -1330,12 +1703,14 @@ impl SettingsView {
             .hover(|style| style.bg(theme.muted))
             .focus(|style| style.bg(theme.list_active).border_color(theme.ring))
             .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.appearance.set_preset(preset, &this.services, cx);
+                this.appearance
+                    .set_preset(scheme, preset, &this.services, cx);
             }))
             .on_key_down(
                 cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
                     if preset_activation_key(event.keystroke.key.as_str()) {
-                        this.appearance.set_preset(preset, &this.services, cx);
+                        this.appearance
+                            .set_preset(scheme, preset, &this.services, cx);
                         cx.stop_propagation();
                         return;
                     }
@@ -1353,7 +1728,7 @@ impl SettingsView {
                         rove_index(current, event.keystroke.key.as_str(), choices.len())
                     {
                         let next = choices[next];
-                        this.appearance.set_preset(next, &this.services, cx);
+                        this.appearance.set_preset(scheme, next, &this.services, cx);
                         focus_button(
                             SharedString::from(format!("preset-{next:?}").to_ascii_lowercase()),
                             window,
@@ -1388,6 +1763,7 @@ impl SettingsView {
     }
 }
 
+#[allow(dead_code)]
 fn ui_font_label(font: UiFont) -> &'static str {
     match font {
         UiFont::System => "System",
@@ -1396,6 +1772,7 @@ fn ui_font_label(font: UiFont) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn code_font_label(font: CodeFont) -> &'static str {
     match font {
         CodeFont::SfMono => "SF Mono",
@@ -1470,12 +1847,12 @@ impl AppearanceState {
     /// Apply a preset to the active scheme's variant and persist.
     fn set_preset(
         &mut self,
+        scheme: Scheme,
         preset: PresetId,
         services: &SettingsServices,
         cx: &mut Context<SettingsView>,
     ) {
         let mut config = self.config(services, cx);
-        let scheme = self.editing_scheme;
         let variant = get_preset_variant(preset, scheme);
         match scheme {
             Scheme::Light => config.light = variant,

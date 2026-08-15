@@ -23,16 +23,16 @@ use aiden_agent::{run_agent, AgentEvent, RunnerConfig};
 use aiden_data::portable_config::McpServer;
 use aiden_data::schedule_store::ScheduledTask;
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, Context, ElementId, Entity,
-    Focusable as _, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
-    Window,
+    div, img, prelude::FluentBuilder as _, px, App, AppContext as _, Context, ElementId, Entity,
+    Focusable as _, FontWeight, Image, ImageFormat, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
+    v_flex, ActiveTheme, Disableable as _, IconName, Sizable as _,
 };
 use gpui_tokio_bridge::{JoinError, Tokio};
 use tokio::sync::mpsc;
@@ -60,6 +60,8 @@ use crate::services::provider_kit::{
     configured_codex_provider, enrich_provider, load_capabilities, resolve_runtime_api_key,
     ConfiguredProvider, ModelSelection,
 };
+
+const AIDEN_MARK_CIRCLE_PNG: &[u8] = include_bytes!("../../../../resources/aiden-mark-circle.png");
 use crate::services::stores::Stores;
 
 /// The persisted model-selection settings key (shared with the chat service).
@@ -940,15 +942,17 @@ impl AssistantPanel {
                     .items_center()
                     .child(
                         div()
+                            .relative()
                             .size(px(20.))
-                            .rounded_md()
-                            .bg(theme.sidebar_primary)
-                            .items_center()
-                            .justify_center()
+                            .rounded_full()
+                            .overflow_hidden()
                             .child(
-                                Icon::new(IconName::Bot)
-                                    .xsmall()
-                                    .text_color(theme.sidebar_primary_foreground),
+                                img(Arc::new(Image::from_bytes(
+                                    ImageFormat::Png,
+                                    AIDEN_MARK_CIRCLE_PNG.to_vec(),
+                                )))
+                                .size(px(20.))
+                                .rounded_full(),
                             ),
                     )
                     .child(

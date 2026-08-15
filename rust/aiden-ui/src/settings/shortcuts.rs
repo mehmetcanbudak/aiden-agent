@@ -28,11 +28,12 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    switch::Switch,
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
 };
 
-use super::{SettingsServices, SettingsView};
+use crate::controls::Switch;
+
+use super::{settings_fieldset, SettingsServices, SettingsView};
 
 /// Local catalog metadata (titles/descriptions) for the 26 commands. The
 /// *bindings* themselves always come from `aiden_core` (the catalog defaults +
@@ -309,6 +310,17 @@ impl ShortcutsState {
             .is_some()
     }
 
+    /// A disabled command may retain its previous custom binding so toggling
+    /// it back on can restore that exact accelerator (the renderer's
+    /// `retainedBinding` contract).
+    fn retained_binding(&self, command: CommandId) -> Option<&str> {
+        self.overrides
+            .get("commands")?
+            .get(command.as_str())?
+            .get("binding")?
+            .as_str()
+    }
+
     /// Ensure the search input exists (created on first render, which has a
     /// window).
     fn ensure_search_input(
@@ -414,12 +426,12 @@ impl SettingsView {
         v_flex()
             .id("shortcuts-section")
             .w_full()
-            .gap_4()
+            .gap_5()
             .child(
                 v_flex()
                     .child(
                         div()
-                            .text_lg()
+                            .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Keyboard shortcuts"),
                     )
@@ -429,58 +441,34 @@ impl SettingsView {
                             .text_color(theme.muted_foreground)
                             .mt_0p5()
                             .child(
-                                "One command map powers the app, the palette, menus, and these \
-                                 controls. Click a shortcut to record a replacement.",
-                            ),
+                            "One command map powers the app, command palette, menus, and these \
+                                 controls. Global shortcuts work while Aiden is in the background.",
+                        ),
                     ),
             )
             .child(
-                v_flex()
+                h_flex()
+                    .id("shortcuts-search")
                     .w_full()
-                    .gap_3()
+                    .h(px(36.))
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.background)
                     .child(
-                        h_flex()
-                            .id("shortcuts-search")
-                            .w_full()
-                            .h(px(36.))
-                            .gap_2()
-                            .items_center()
-                            .px_3()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(theme.border)
-                            .bg(theme.background)
-                            .child(
-                                Icon::new(IconName::Search)
-                                    .small()
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child("Search"),
-                            )
-                            .child(
-                                Input::new(&search_input)
-                                    .small()
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .focus_bordered(true),
-                            ),
+                        Icon::new(IconName::Search)
+                            .small()
+                            .text_color(theme.muted_foreground),
                     )
                     .child(
-                        h_flex().w_full().justify_end().child(
-                            Button::new("reset-all-shortcuts")
-                                .small()
-                                .ghost()
-                                .icon(IconName::Undo2)
-                                .label("Reset to defaults")
-                                .disabled(self.shortcuts.applying)
-                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                    this.shortcuts.reset_all(&this.services, cx);
-                                })),
-                        ),
+                        Input::new(&search_input)
+                            .small()
+                            .appearance(false)
+                            .bordered(false)
+                            .focus_bordered(true),
                     ),
             )
             .when_some(error, |el, message| {
@@ -573,40 +561,38 @@ impl SettingsView {
         if rows.is_empty() {
             return div().into_any_element();
         }
-        v_flex()
+        let row_count = rows.len();
+        let rendered = rows
+            .into_iter()
+            .enumerate()
+            .map(|(index, (id, title, description))| {
+                let binding = effective.get(id.as_str()).cloned().flatten();
+                let overridden = self.shortcuts.overridden(id);
+                let is_recording = recording == Some(id);
+                let status = global.iter().find(|status| status.command_id == id);
+                self.shortcut_row(
+                    id,
+                    title,
+                    description,
+                    binding.as_deref(),
+                    overridden,
+                    is_recording,
+                    status,
+                    recorder_focus.clone(),
+                    index + 1 < row_count,
+                    cx,
+                )
+                .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        div()
             .id(id)
             .w_full()
-            .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .children(rows.into_iter().map(|(id, title, description)| {
-                        let binding = effective.get(id.as_str()).cloned().flatten();
-                        let overridden = self.shortcuts.overridden(id);
-                        let is_recording = recording == Some(id);
-                        let status = global.iter().find(|status| status.command_id == id);
-                        self.shortcut_row(
-                            id,
-                            title,
-                            description,
-                            binding.as_deref(),
-                            overridden,
-                            is_recording,
-                            status,
-                            recorder_focus.clone(),
-                            cx,
-                        )
-                    })),
-            )
+            .child(settings_fieldset(
+                title,
+                rendered,
+                crate::services::appearance::well_surface(cx),
+            ))
             .into_any_element()
     }
 
@@ -622,6 +608,7 @@ impl SettingsView {
         recording: bool,
         global_status: Option<&GlobalShortcutStatus>,
         recorder_focus: Option<FocusHandle>,
+        separator: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -633,22 +620,24 @@ impl SettingsView {
         } else {
             "Custom"
         };
-        let source = match global_status.map(|status| status.state) {
-            Some(GlobalShortcutState::Active) => format!("{source} · Active"),
-            Some(GlobalShortcutState::Unavailable) => format!("{source} · Unavailable"),
-            Some(GlobalShortcutState::Disabled) => format!("{source} · Off"),
-            None => source.to_string(),
+        let runtime = match global_status.map(|status| status.state) {
+            Some(GlobalShortcutState::Active) => "Global · Active",
+            Some(GlobalShortcutState::Unavailable) => "Global · Unavailable",
+            Some(GlobalShortcutState::Disabled) => "Global · Off",
+            None => "In app",
         };
         let status_message = global_status.and_then(|status| status.message.clone());
-        let can_enable = binding.is_some() || command_default_binding(command).is_some();
+        let can_enable = binding.is_some()
+            || self.shortcuts.retained_binding(command).is_some()
+            || command_default_binding(command).is_some();
 
-        h_flex()
+        v_flex()
             .id(SharedString::from(format!("shortcut-row-{id}")))
+            .relative()
             .w_full()
-            .px_3()
-            .py_2p5()
-            .gap_3()
-            .items_center()
+            .min_h(px(130.))
+            .px_4()
+            .py(px(14.))
             .on_key_down(cx.listener(move |this, event, _window, cx| {
                 this.shortcuts
                     .on_record_key(event, command, &this.services, cx);
@@ -658,54 +647,80 @@ impl SettingsView {
                 |row, focus| row.track_focus(&focus),
             )
             .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(gpui::px(0.))
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .gap_3()
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(title))
+                        v_flex()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(
+                                h_flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .child(title),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_1p5()
+                                            .py_0p5()
+                                            .rounded_md()
+                                            .bg(theme.muted)
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .child(runtime),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_1p5()
+                                            .py_0p5()
+                                            .rounded_md()
+                                            .bg(theme.muted)
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .child(source),
+                                    ),
+                            )
                             .child(
                                 div()
-                                    .px_1p5()
-                                    .py_0p5()
-                                    .rounded_md()
-                                    .bg(theme.muted)
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
-                                    .child(source),
+                                    .mt_0p5()
+                                    .child(description),
                             ),
                     )
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .mt_0p5()
-                            .child(description),
-                    )
-                    .when_some(status_message, |column, message| {
-                        column.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.danger)
-                                .mt_0p5()
-                                .child(message),
-                        )
-                    }),
+                        Switch::new(SharedString::from(format!("shortcut-enabled-{id}")))
+                            .checked(binding.is_some())
+                            .disabled(!can_enable || self.shortcuts.applying)
+                            .on_click(cx.listener(move |this, checked, _window, cx| {
+                                this.shortcuts.apply(
+                                    KeybindingMutation::Disable {
+                                        command_id: command,
+                                        disabled: !checked,
+                                    },
+                                    &this.services,
+                                    cx,
+                                );
+                            })),
+                    ),
             )
             .child(
                 h_flex()
+                    .mt_3()
                     .gap_2()
                     .items_center()
+                    .flex_wrap()
                     .child(
                         Button::new(SharedString::from(format!("shortcut-record-{id}")))
                             .small()
-                            .icon(if recording {
-                                IconName::LoaderCircle
-                            } else {
-                                IconName::Settings2
-                            })
+                            .icon(Icon::default().path("native-icons/settings/keyboard.svg"))
                             .label(if recording {
                                 "Press keys…".to_string()
                             } else {
@@ -737,7 +752,7 @@ impl SettingsView {
                                 .small()
                                 .ghost()
                                 .icon(IconName::Undo2)
-                                .tooltip("Reset to default")
+                                .label("Reset")
                                 .on_click(cx.listener(move |this, _event, _window, cx| {
                                     this.shortcuts.apply(
                                         KeybindingMutation::Reset {
@@ -749,33 +764,38 @@ impl SettingsView {
                                 })),
                         )
                     })
-                    .child(
-                        Switch::new(SharedString::from(format!("shortcut-enabled-{id}")))
-                            .checked(binding.is_some())
-                            .disabled(!can_enable || self.shortcuts.applying)
-                            .label(if binding.is_some() {
-                                "Enabled"
-                            } else {
-                                "Disabled"
-                            })
-                            .on_click(cx.listener(move |this, checked, _window, cx| {
-                                this.shortcuts.apply(
-                                    KeybindingMutation::Disable {
-                                        command_id: command,
-                                        disabled: !checked,
-                                    },
-                                    &this.services,
-                                    cx,
-                                );
-                            })),
-                    ),
+                    .when(recording, |el| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("Press a modifier and key. Escape cancels; Tab moves on."),
+                        )
+                    }),
             )
-            .when(recording, |el| {
-                el.child(
+            .when_some(status_message, |column, message| {
+                column.child(
+                    h_flex()
+                        .mt_2()
+                        .gap_1p5()
+                        .items_start()
+                        .child(
+                            Icon::new(IconName::TriangleAlert)
+                                .xsmall()
+                                .text_color(theme.danger),
+                        )
+                        .child(div().text_xs().text_color(theme.danger).child(message)),
+                )
+            })
+            .when(separator, |column| {
+                column.child(
                     div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child("Press a modifier and key. Escape cancels; Tab moves on."),
+                        .absolute()
+                        .bottom_0()
+                        .left_4()
+                        .right_4()
+                        .h(px(1.))
+                        .bg(theme.border),
                 )
             })
     }
@@ -907,15 +927,6 @@ impl ShortcutsState {
             .update(cx, |runtime, cx| runtime.apply(mutation, cx));
         cx.notify();
     }
-
-    /// Reset every command to its catalog default in one persisted document.
-    fn reset_all(&mut self, services: &SettingsServices, cx: &mut Context<SettingsView>) {
-        self.cancel_recording(services, cx);
-        services
-            .shortcuts
-            .update(cx, |runtime, cx| runtime.reset_all(cx));
-        cx.notify();
-    }
 }
 
 /// Last-resort recorder cleanup when the Settings entity itself is dropped.
@@ -1020,6 +1031,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn disabled_override_retains_a_custom_binding_for_reenable() {
+        let state = ShortcutsState {
+            overrides: serde_json::json!({
+                "version": 1,
+                "commands": {
+                    "dictation.toggle": {
+                        "binding": "Command+Shift+D",
+                        "disabled": true
+                    }
+                }
+            }),
+            ..ShortcutsState::default()
+        };
+        assert_eq!(
+            state.retained_binding(CommandId::DictationToggle),
+            Some("Command+Shift+D")
+        );
     }
 
     #[test]

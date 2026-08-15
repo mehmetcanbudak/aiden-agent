@@ -38,7 +38,7 @@ use aiden_core::{
     SubagentMessageReferenceV1, SubagentRunSnapshotV1, SubagentRunState,
 };
 use gpui::{
-    div, prelude::FluentBuilder as _, px, relative, rems, App, Context, ElementId, FontWeight,
+    div, prelude::FluentBuilder as _, px, relative, App, Context, ElementId, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window,
 };
@@ -54,7 +54,7 @@ use gpui_component::{
 use crate::app::AppState;
 use crate::chat::activity_feed::timeline_feed;
 use crate::chat::composer::{
-    attachment_image_element, composer_draft, CHAT_CONTENT_MAX_WIDTH_REMS, CHAT_DOCK_GUTTER_PX,
+    attachment_image_element, composer_draft, CHAT_CONTENT_MAX_WIDTH_PX, CHAT_DOCK_GUTTER_PX,
 };
 use crate::chat::markdown::markdown_with_math_fallback;
 use crate::services::chat_service::{ChatSnapshot, GenerationState};
@@ -123,7 +123,7 @@ impl AppState {
                 v_flex()
                     .id("chat-content-column")
                     .w_full()
-                    .max_w(rems(CHAT_CONTENT_MAX_WIDTH_REMS))
+                    .max_w(px(CHAT_CONTENT_MAX_WIDTH_PX))
                     .mx_auto()
                     .px(px(CHAT_DOCK_GUTTER_PX))
                     .py_6()

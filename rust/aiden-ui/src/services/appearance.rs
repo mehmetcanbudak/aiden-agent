@@ -25,6 +25,7 @@ pub const SETTINGS_APPEARANCE_KEY: &str = "appearance";
 #[derive(Clone, Copy)]
 pub struct AidenSemanticColors {
     pub input_surface: Hsla,
+    pub well_surface: Hsla,
 }
 
 impl Global for AidenSemanticColors {}
@@ -93,6 +94,13 @@ pub fn input_surface(cx: &App) -> Hsla {
     )
 }
 
+pub fn well_surface(cx: &App) -> Hsla {
+    cx.try_global::<AidenSemanticColors>().map_or_else(
+        || Theme::global(cx).background,
+        |colors| colors.well_surface,
+    )
+}
+
 fn semantic_colors(
     variant: &ThemeVariantConfig,
     scheme: Scheme,
@@ -103,7 +111,14 @@ fn semantic_colors(
         .get("--surface-input")
         .and_then(|color| parse_aiden_semantic_color(color))
         .unwrap_or_else(Hsla::transparent_black);
-    AidenSemanticColors { input_surface }
+    let well_surface = tokens
+        .get("--surface-well")
+        .and_then(|color| parse_aiden_semantic_color(color))
+        .unwrap_or_else(Hsla::transparent_black);
+    AidenSemanticColors {
+        input_surface,
+        well_surface,
+    }
 }
 
 /// Parse the normalized color forms emitted by `resolve_theme_tokens`.
@@ -192,8 +207,39 @@ pub fn build_theme_config(
 fn color(tokens: &BTreeMap<String, String>, key: &str) -> serde_json::Value {
     tokens
         .get(key)
-        .map(|value| serde_json::Value::String(value.clone()))
+        .and_then(|value| gpui_theme_color(value))
+        .map(serde_json::Value::String)
         .unwrap_or(serde_json::Value::Null)
+}
+
+/// `gpui-component` 0.5.1 accepts only `#RRGGBB`/`#RRGGBBAA` in theme
+/// configuration. Aiden's shared renderer contract deliberately emits CSS
+/// Color 4 alpha values (`rgb(R G B / A)`) for translucent surfaces. Passing
+/// those strings through unchanged makes gpui-component silently fall back to
+/// its stock theme, which is why the native sidebar, title bar, selected rows,
+/// controls, and borders appeared black/blue instead of matching Electron.
+/// Normalize the shared tokens at this one adapter boundary while preserving
+/// their exact alpha.
+fn gpui_theme_color(value: &str) -> Option<String> {
+    if value.starts_with('#') {
+        return matches!(value.len(), 7 | 9).then(|| value.to_string());
+    }
+
+    let body = value.strip_prefix("rgb(")?.strip_suffix(')')?;
+    let (channels, alpha) = body.split_once('/')?;
+    let mut channels = channels.split_ascii_whitespace();
+    let red = channels.next()?.parse::<u8>().ok()?;
+    let green = channels.next()?.parse::<u8>().ok()?;
+    let blue = channels.next()?.parse::<u8>().ok()?;
+    if channels.next().is_some() {
+        return None;
+    }
+    let alpha = alpha.trim().parse::<f32>().ok()?;
+    if !(0.0..=1.0).contains(&alpha) {
+        return None;
+    }
+    let alpha = (alpha * 255.0).round() as u8;
+    Some(format!("#{red:02X}{green:02X}{blue:02X}{alpha:02X}"))
 }
 
 /// Project the Aiden semantic tokens onto the gpui-component theme schema.
@@ -231,6 +277,7 @@ fn theme_config_json(
         "secondary.active.background",
         "--surface-control-active",
     );
+    set(&mut colors, "switch", "--surface-control-hover");
     set(&mut colors, "muted.background", "--surface-control");
     set(&mut colors, "muted.foreground", "--text-tertiary");
     set(&mut colors, "popover.background", "--surface-popover");
@@ -306,7 +353,9 @@ fn theme_config_json(
     serde_json::Value::Object(Map::from_iter([
         ("name".into(), Value::String(name.to_string())),
         ("mode".into(), Value::String(mode.name().to_string())),
-        ("radius".into(), Value::Number(8.into())),
+        // Electron uses a 12 px control/card radius in the matched v0.28.39
+        // stylesheet. gpui-component applies this token to shared primitives.
+        ("radius".into(), Value::Number(12.into())),
         ("colors".into(), Value::Object(colors)),
         (
             "highlight".into(),
@@ -407,20 +456,44 @@ mod tests {
             assert_eq!(theme_config.mode, theme_mode(scheme));
             // The projected JSON maps the Aiden token onto the theme color.
             let json = theme_config_json(&tokens, "test", theme_mode(scheme));
-            assert_eq!(
-                json["colors"]["background"], tokens["--theme-canvas"],
-                "background should come from the Aiden tokens"
-            );
+            assert_eq!(json["colors"]["background"], tokens["--theme-canvas"]);
             assert_eq!(json["colors"]["foreground"], tokens["--text-primary"]);
             assert_eq!(json["colors"]["accent.background"], tokens["--accent"]);
             assert_eq!(
+                json["colors"]["switch"],
+                gpui_theme_color(&tokens["--surface-control-hover"]).unwrap()
+            );
+            assert_eq!(
                 json["colors"]["sidebar.accent.background"],
-                tokens["--surface-list-selection"]
+                gpui_theme_color(&tokens["--surface-list-selection"]).unwrap()
             );
             assert_eq!(
                 json["highlight"]["syntax"]["keyword"]["color"],
                 tokens["--syntax-keyword"]
             );
+        }
+    }
+
+    #[test]
+    fn css_alpha_tokens_are_normalized_for_gpui_component_instead_of_falling_back() {
+        assert_eq!(
+            gpui_theme_color("rgb(32 36 44 / 0.78)").as_deref(),
+            Some("#20242CC7")
+        );
+        assert_eq!(
+            gpui_theme_color("rgb(24 27 33 / 0.94)").as_deref(),
+            Some("#181B21F0")
+        );
+        assert_eq!(
+            gpui_theme_color("rgb(62 151 246 / 0.18)").as_deref(),
+            Some("#3E97F62E")
+        );
+        assert_eq!(gpui_theme_color("#D1D4DA").as_deref(), Some("#D1D4DA"));
+        assert!(gpui_theme_color("rgb(1 2 / 0.5)").is_none());
+        assert!(gpui_theme_color("rgb(1 2 3 / 2)").is_none());
+
+        for color in ["#20242CC7", "#181B21F0", "#3E97F62E"] {
+            assert!(gpui::Rgba::try_from(color).is_ok());
         }
     }
 
@@ -459,6 +532,23 @@ mod tests {
         }
         assert!(parse_aiden_semantic_color("rgb(1 2 / 0.5)").is_none());
         assert!(parse_aiden_semantic_color("rgb(1 2 3 / 1.5)").is_none());
+    }
+
+    #[test]
+    fn well_surface_global_comes_from_the_exact_aiden_semantic_token() {
+        let config = create_default_appearance_config();
+        for (scheme, token) in [
+            (Scheme::Light, "rgb(61 63 65 / 0.029)"),
+            (Scheme::Dark, "rgb(209 212 218 / 0.032)"),
+        ] {
+            let variant = variant_for(&config, scheme);
+            let tokens = resolve_theme_tokens(variant, scheme, false);
+            assert_eq!(tokens["--surface-well"], token);
+            assert_eq!(
+                semantic_colors(variant, scheme, false).well_surface,
+                parse_aiden_semantic_color(token).unwrap()
+            );
+        }
     }
 
     #[test]

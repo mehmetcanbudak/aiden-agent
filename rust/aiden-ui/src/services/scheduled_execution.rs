@@ -354,6 +354,7 @@ impl ProductionScheduledExecutor {
                 provider_id: provider_id.to_string(),
                 model: model.to_string(),
             },
+            thinking_level: None,
             catalog,
             mcp,
             skills: None,

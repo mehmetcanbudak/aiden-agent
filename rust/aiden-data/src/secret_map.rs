@@ -704,6 +704,43 @@ impl ProviderKeysStore {
         })
     }
 
+    /// Remove every legacy/custom provider credential for onboarding reset.
+    /// The JSON map is cleared first, making every slot immediately
+    /// unavailable; Keychain cleanup then runs best-effort for every account
+    /// identity recoverable from the prior document.
+    pub fn clear_all(&self) -> Result<(), ProviderKeysError> {
+        let map = self.store.load()?;
+        let mut value_ids = HashSet::new();
+        for key in map.keys() {
+            let value_id = key
+                .strip_prefix(PROVIDER_BINDING_KEY_PREFIX)
+                .or_else(|| key.strip_prefix(PROVIDER_PENDING_KEY_PREFIX))
+                .unwrap_or(key);
+            value_ids.insert(value_id.to_string());
+        }
+        self.store.update(|map| {
+            let changed = !map.is_empty();
+            map.clear();
+            changed
+        })?;
+        let mut revoked = self
+            .authority
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for value_id in value_ids {
+            revoked.insert(value_id.clone());
+            let _ = self.cipher.delete_entry(&keychain_account_for(&value_id));
+            let _ = self.keychain.delete(&keychain_account_for(&value_id));
+            let _ = self
+                .cipher
+                .delete_entry(&keychain_binding_account_for(&value_id));
+            let _ = self
+                .keychain
+                .delete(&keychain_binding_account_for(&value_id));
+        }
+        Ok(())
+    }
+
     fn delete_with_marker_removal(
         &self,
         provider_id: &str,

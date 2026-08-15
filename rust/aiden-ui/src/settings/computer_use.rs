@@ -16,15 +16,18 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex,
-    switch::Switch,
-    v_flex, ActiveTheme, Disableable as _, Sizable as _,
+    h_flex, v_flex, ActiveTheme, Disableable as _, Sizable as _,
 };
+
+use crate::controls::Switch;
 use gpui_tokio_bridge::Tokio;
 
 use crate::services::computer_use::ComputerUseUserInitiated;
 
-use super::{SettingsServices, SettingsView};
+use super::{
+    settings_field, settings_fieldset, settings_fieldset_with_title, SettingsServices,
+    SettingsView, SETTINGS_CARD_RADIUS_PX, SETTINGS_SMALL_TEXT_PX, SETTINGS_TEXT_PX,
+};
 
 pub const COMPUTER_USE_ENABLED_KEY: &str = "computerUseEnabled";
 
@@ -242,7 +245,8 @@ impl SettingsView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let theme = cx.theme();
+        let theme = cx.theme().clone();
+        let well = crate::services::appearance::well_surface(cx);
         let state = &self.computer_use.state;
         let privacy_notice_dismissed = self.computer_use.privacy_notice_dismissed;
         let privacy_notice_restoring = self.computer_use.privacy_notice_restoring;
@@ -260,263 +264,235 @@ impl SettingsView {
             .as_ref()
             .is_some_and(|status| status.can_request_permissions);
 
-        v_flex()
-            .id("computer-use-section")
+        let enabled_row = settings_field(
+            "computer-use-enabled",
+            "Enable Computer Use",
+            "Makes Aiden's pinned external cua-driver available as an opt-in tool in individual chats.",
+            Switch::new("computer-use-enabled-switch")
+                .checked(state.enabled)
+                .disabled(busy)
+                .on_click(cx.listener(|this, checked, _window, cx| {
+                    let services = this.services.clone();
+                    this.computer_use.set_enabled(*checked, &services, cx);
+                })),
+            true,
+            &theme,
+        );
+
+        let readiness_callout = v_flex()
             .w_full()
-            .gap_4()
+            .gap_3()
+            .rounded(gpui::px(SETTINGS_CARD_RADIUS_PX))
+            .bg(theme.background)
+            .p_3()
             .child(
-                v_flex()
+                h_flex()
+                    .w_full()
+                    .items_start()
+                    .justify_between()
+                    .gap_3()
                     .child(
                         h_flex()
-                            .items_center()
+                            .min_w(gpui::px(0.))
+                            .items_start()
                             .gap_2()
                             .child(
                                 div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Computer use"),
+                                    .mt(gpui::px(2.))
+                                    .size(gpui::px(8.))
+                                    .rounded_full()
+                                    .bg(status_color),
                             )
-                            .child(computer_use_badge(
-                                "Beta",
-                                theme.accent,
-                                theme.accent_foreground,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .mt_0p5()
-                            .child(
-                                "Control native macOS apps through Aiden’s pinned helper. Off by default globally and in every chat.",
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .px_4()
-                    .py_3()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
                             .child(
                                 v_flex()
-                                    .gap_0p5()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Allow Computer Use"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child("This global gate only makes the per-chat opt-in available."),
-                                    ),
-                            )
-                            .child(
-                                Switch::new("computer-use-enabled")
-                                    .checked(state.enabled)
-                                    .label(if state.enabled { "On" } else { "Off" })
-                                    .disabled(busy)
-                                    .on_click(cx.listener(|this, checked, _window, cx| {
-                                        let services = this.services.clone();
-                                        this.computer_use.set_enabled(*checked, &services, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_2()
-                                    .child(
-                                        v_flex()
-                                            .gap_0p5()
-                                            .child(
-                                                h_flex()
-                                                    .gap_2()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .font_weight(FontWeight::SEMIBOLD)
-                                                            .child("Helper and permissions"),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .px_1p5()
-                                                            .py_0p5()
-                                                            .rounded_md()
-                                                            .bg(status_color.opacity(0.14))
-                                                            .text_xs()
-                                                            .text_color(status_color)
-                                                            .child(presentation.label),
-                                                    )
-                                                    .when_some(
-                                                        state
-                                                            .status
-                                                            .as_ref()
-                                                            .and_then(|status| status.driver_version.clone()),
-                                                        |row, version| {
-                                                            row.child(computer_use_badge(
-                                                                format!("cua-driver {version}"),
-                                                                theme.muted_foreground,
-                                                                theme.muted_foreground,
-                                                            ))
-                                                        },
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(theme.muted_foreground)
-                                                    .child(presentation.detail),
-                                            ),
-                                    )
+                                    .min_w(gpui::px(0.))
                                     .child(
                                         h_flex()
-                                            .gap_1()
-                                            .when(can_request, |el| {
-                                                el.child(
-                                                    Button::new("computer-use-request-permissions")
-                                                        .primary()
-                                                        .small()
-                                                        .label("Request permissions")
-                                                        .disabled(busy)
-                                                        .on_click(cx.listener(|this, _, _, cx| {
-                                                            let services = this.services.clone();
-                                                            this.computer_use.request_permissions(&services, cx);
-                                                        })),
-                                                )
-                                            })
+                                            .flex_wrap()
+                                            .gap_2()
                                             .child(
-                                                Button::new("computer-use-check")
-                                                    .outline()
-                                                    .small()
-                                                    .label("Refresh")
-                                                    .disabled(
-                                                        busy || (!state.enabled && state.error.is_none()),
-                                                    )
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        let services = this.services.clone();
-                                                        this.computer_use.check(&services, cx);
-                                                    })),
+                                                div()
+                                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .child(presentation.label),
+                                            )
+                                            .when_some(
+                                                state.status.as_ref().and_then(|status| {
+                                                    status.driver_version.clone()
+                                                }),
+                                                |row, version| {
+                                                    row.child(computer_use_badge(
+                                                        format!("cua-driver {version}"),
+                                                        theme.muted,
+                                                        theme.foreground,
+                                                    ))
+                                                },
                                             ),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_1()
+                                            .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                            .text_color(theme.secondary_foreground)
+                                            .child(presentation.detail),
                                     ),
-                            )
-                            .when_some(state.status.as_ref(), |el, status| {
-                                el.child(
-                                    h_flex()
-                                        .gap_2()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(format!(
-                                            "Accessibility: {}",
-                                            permission_label(status.permissions.accessibility)
-                                        ))
-                                        .child("·")
-                                        .child(format!(
-                                            "Screen Recording: {}",
-                                            permission_label(status.permissions.screen_recording)
-                                        )),
-                                )
-                            })
-                            .when_some(privacy_notice_error.clone(), |el, error| {
-                                el.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.danger)
-                                        .child(error),
-                                )
-                            })
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .px_4()
-                    .py_3()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Privacy and control"),
-                            )
-                            .child(computer_use_badge(
-                                "Per-chat opt-in",
-                                theme.muted_foreground,
-                                theme.muted_foreground,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(
-                                "When a chat opts in, its selected provider may receive bounded screenshots, window details, and accessibility text. Aiden does not persist captured UI. Read-only inspection can run without a prompt; every input action pauses for an attended Allow once or Deny decision.",
                             ),
                     )
                     .child(
                         h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(computer_use_badge(
-                                        "Actions ask first",
-                                        theme.warning,
-                                        theme.warning,
-                                    ))
-                                    .child(computer_use_badge(
-                                        "No UI capture saved",
-                                        theme.success,
-                                        theme.success,
-                                    )),
-                            )
-                            .when(privacy_notice_dismissed, |el| {
-                                el.child(
-                                    Button::new("computer-use-restore-privacy")
+                            .gap_1()
+                            .when(can_request, |row| {
+                                row.child(
+                                    Button::new("computer-use-request-permissions")
                                         .small()
-                                        .ghost()
-                                        .label(if privacy_notice_restoring {
-                                            "Restoring…"
+                                        .label(if busy {
+                                            "Requesting…"
                                         } else {
-                                            "Show privacy notice again"
+                                            "Request access"
                                         })
-                                        .disabled(privacy_notice_restoring)
+                                        .disabled(busy)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             let services = this.services.clone();
-                                            this.computer_use.restore_privacy_notice(&services, cx);
+                                            this.computer_use.request_permissions(&services, cx);
                                         })),
                                 )
                             })
+                            .when(state.enabled || state.error.is_some(), |row| {
+                                row.child(
+                                    Button::new("computer-use-check")
+                                        .small()
+                                        .ghost()
+                                        .label("Check again")
+                                        .disabled(busy)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            let services = this.services.clone();
+                                            this.computer_use.check(&services, cx);
+                                        })),
+                                )
+                            }),
+                    ),
             )
+            .when_some(state.status.as_ref(), |view, status| {
+                view.child(
+                    h_flex()
+                        .gap_2()
+                        .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                        .text_color(theme.secondary_foreground)
+                        .child(format!(
+                            "Accessibility: {}",
+                            permission_label(status.permissions.accessibility)
+                        ))
+                        .child("·")
+                        .child(format!(
+                            "Screen Recording: {}",
+                            permission_label(status.permissions.screen_recording)
+                        )),
+                )
+            });
+
+        let readiness_row = div()
+            .id("computer-use-readiness")
+            .relative()
+            .w_full()
+            .p_4()
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .child(
+                                div()
+                                    .text_size(gpui::px(SETTINGS_TEXT_PX))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Readiness"),
+                            )
+                            .child(
+                                div()
+                                    .mt(gpui::px(2.))
+                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_color(theme.secondary_foreground)
+                                    .child("Computer Use needs Accessibility and Screen Recording. Permission belongs to Aiden Computer Use, not the model provider."),
+                            ),
+                    )
+                    .child(readiness_callout)
+                    .when_some(privacy_notice_error.clone(), |view, error| {
+                        view.child(
+                            div()
+                                .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                .text_color(theme.danger)
+                                .child(error),
+                        )
+                    }),
             )
+            .into_any_element();
+
+        let behavior = h_flex()
+            .w_full()
+            .items_start()
+            .justify_between()
+            .gap_6()
+            .p_4()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(gpui::px(0.))
+                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                    .text_color(theme.secondary_foreground)
+                    .child("Only chats you turn on can use Computer Use. For those responses, your selected model may receive screenshots, window details, and accessibility text. Aiden doesn’t save that content; your provider handles it under its data policy. Read-only inspection runs without prompts, while every control action requires Allow once."),
+            )
+            .child(
+                v_flex()
+                    .flex_shrink_0()
+                    .items_end()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(computer_use_badge(
+                                "Per-chat opt-in",
+                                theme.muted,
+                                theme.foreground,
+                            ))
+                            .child(computer_use_badge(
+                                "Actions ask first",
+                                theme.muted,
+                                theme.foreground,
+                            )),
+                    )
+                    .when(privacy_notice_dismissed, |view| {
+                        view.child(
+                            Button::new("computer-use-restore-privacy")
+                                .small()
+                                .ghost()
+                                .label(if privacy_notice_restoring {
+                                    "Restoring…"
+                                } else {
+                                    "Show privacy notice again"
+                                })
+                                .disabled(privacy_notice_restoring)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let services = this.services.clone();
+                                    this.computer_use.restore_privacy_notice(&services, cx);
+                                })),
+                        )
+                    }),
+            )
+            .into_any_element();
+
+        v_flex()
+            .id("computer-use-section")
+            .w_full()
+            .child(settings_fieldset_with_title(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child("Computer Use")
+                    .child(computer_use_badge("Beta", theme.accent, theme.accent))
+                    .into_any_element(),
+                vec![enabled_row, readiness_row],
+                well,
+            ))
+            .child(settings_fieldset("How it behaves", vec![behavior], well))
     }
 }
 

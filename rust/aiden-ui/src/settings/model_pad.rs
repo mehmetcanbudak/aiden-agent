@@ -28,11 +28,11 @@ use gpui_component::{
     h_flex,
     input::{Input, InputState},
     tooltip::Tooltip,
-    v_flex, ActiveTheme, Disableable as _, IconName, PixelsExt as _, Sizable as _,
+    v_flex, ActiveTheme, Disableable as _, Icon, IconName, PixelsExt as _, Sizable as _,
 };
 
 use super::providers::ProviderRow;
-use super::SettingsView;
+use super::{settings_fieldset, SettingsView};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelInventoryEntry {
@@ -705,25 +705,34 @@ impl SettingsView {
         let content_width = model_pad_content_width(window.viewport_size().width.as_f32());
         let layout = inventory_layout(content_width);
         let pad_size = if layout == InventoryLayout::BesidePad {
-            400.0
+            // `content_width` includes the settings shell's 40 px horizontal
+            // padding. The Field body adds another 32 px, followed by the
+            // exact 216 px inventory column and 16 px grid gap. The Electron
+            // `minmax(0, 1fr)` pad is the remainder, not a fixed 400 px box.
+            (content_width - 40.0 - 32.0 - MODEL_PAD_INVENTORY_WIDTH_PX - 16.0).clamp(240.0, 400.0)
         } else {
-            content_width.clamp(240.0, 400.0)
+            (content_width - 40.0 - 32.0).clamp(240.0, 400.0)
         };
         let pad_range = pad_size - PAD_INSET_PX * 2.0;
 
-        v_flex()
-            .id("model-pad-section")
+        let body = v_flex()
             .w_full()
             .gap_4()
+            .p_4()
             .child(
                 v_flex()
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("Model Pad"))
                     .child(
                         div()
                             .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("Arrange your models"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.))
                             .text_color(theme.muted_foreground)
                             .mt_0p5()
-                            .child("Choose the models you want close at hand, then arrange them by capability and response pace."),
+                            .child("Choose the models you want close at hand, then place them by how capable and responsive they feel for your work. Only saved models appear on the Pad."),
                     ),
             )
             .when_some(self.model_pad.load_error.clone(), |el, message| {
@@ -840,7 +849,7 @@ impl SettingsView {
                                             .bg(theme.foreground.opacity(0.16))
                                     }))
                                     .when(placements.is_empty(), |el| {
-                                        el.child(div().absolute().inset_0().flex().items_center().justify_center().px_10().text_center().text_sm().text_color(theme.muted_foreground).child("Add a few models from the list, then use the arrow keys to arrange them."))
+                                        el.child(div().absolute().inset_0().flex().items_center().justify_center().px_10().text_center().text_sm().text_color(theme.muted_foreground).child("Add a few models from the list, then drag them into place."))
                                     })
                                     .children(placements.into_iter().map(|(id, placement)| {
                                         let left = PAD_INSET_PX + placement.x as f32 * pad_range;
@@ -1000,20 +1009,38 @@ impl SettingsView {
                     .items_center()
                     .justify_between()
                     .gap_3()
+                    .rounded_lg()
+                    .bg(theme.background.opacity(0.35))
+                    .px_3()
+                    .py_2p5()
                     .child(
-                        div().text_sm().text_color(theme.muted_foreground).child(
-                            match self.model_data.aa.as_ref() {
-                                None => "Checking the local benchmark cache…".to_string(),
-                                Some(status) if !status.ready => "Artificial Analysis suggestions are off. Your personal Model Pad works without them.".to_string(),
-                                Some(_) if suggestion_count == 0 => "No unplaced available models have cached benchmark positions.".to_string(),
-                                Some(_) => format!("{suggestion_count} unplaced model{} can use cached benchmark positions.", if suggestion_count == 1 { "" } else { "s" }),
-                            },
-                        ),
+                        v_flex()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Optional benchmark suggestions"),
+                            )
+                            .child(
+                                div()
+                                    .mt_0p5()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(match self.model_data.aa.as_ref() {
+                                        None => "Aiden is checking the local benchmark cache…".to_string(),
+                                        Some(status) if !status.ready => "Connect Artificial Analysis below only if you want suggestions for unplaced hosted models.".to_string(),
+                                        Some(_) if suggestion_count == 0 => "No unplaced models currently have cached benchmark positions.".to_string(),
+                                        Some(_) => format!("{suggestion_count} unplaced model{} a cached Artificial Analysis position.", if suggestion_count == 1 { " has" } else { "s have" }),
+                                    }),
+                            ),
                     )
                     .child(
                         Button::new("model-pad-suggest-unplaced")
                             .small()
-                            .label(format!("Suggest unplaced ({suggestion_count})"))
+                            .icon(Icon::default().path("native-icons/settings/sparkles.svg"))
+                            .label("Suggest unplaced")
                             .disabled(!suggestions_enabled || saving)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let inventory = available_model_inventory(&this.providers.providers);
@@ -1057,7 +1084,43 @@ impl SettingsView {
                 ModelPadSaveState::Failed { failure, .. } => Some(failure.message),
                 _ => None,
             }, |el, message| el.child(div().text_sm().text_color(theme.danger).child(message)))
-            .child(self.aa_card(cx))
+            .into_any_element();
+
+        let well_surface = crate::services::appearance::well_surface(cx);
+        v_flex()
+            .id("model-pad-section")
+            .w_full()
+            .child(settings_fieldset(
+                "Personal Model Pad",
+                vec![body],
+                well_surface,
+            ))
+            .child(settings_fieldset(
+                "Optional benchmark source",
+                vec![v_flex()
+                    .w_full()
+                    .gap_3()
+                    .p_4()
+                    .child(
+                        v_flex()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Artificial Analysis"),
+                            )
+                            .child(
+                                div()
+                                    .mt_0p5()
+                                    .text_size(px(13.))
+                                    .text_color(theme.muted_foreground)
+                                    .child("Optionally suggest positions for supported hosted models. Personal placements always win, and the Pad works without this connection."),
+                            ),
+                    )
+                    .child(self.aa_card(cx))
+                    .into_any_element()],
+                well_surface,
+            ))
             .into_any_element()
     }
 

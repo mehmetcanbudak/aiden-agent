@@ -32,7 +32,7 @@ use gpui_component::{
 use gpui_tokio_bridge::Tokio;
 use tokio::sync::mpsc;
 
-use super::{SettingsEvent, SettingsServices, SettingsView};
+use super::{settings_field, settings_fieldset, SettingsServices, SettingsView};
 use crate::services::voice::{
     CloudVoiceOption, VoiceProvider, GEMINI_MODELS, LOCAL_VOICE_MODEL_KEY, OPENAI_MODELS,
     VOICE_MIGRATION_NOTICE_KEY, VOICE_MODEL_KEY, VOICE_PROVIDER_KEY,
@@ -72,14 +72,6 @@ impl SelectItem for VoiceModelItem {
 
     fn value(&self) -> &Self::Value {
         &self.value
-    }
-}
-
-fn cloud_setup_event(option: &CloudVoiceOption) -> SettingsEvent {
-    SettingsEvent::PiProviderSetupRequested {
-        provider_id: option.setup_provider_id.to_string(),
-        label: option.setup_label.to_string(),
-        authority_revision: option.authority_revision,
     }
 }
 
@@ -524,56 +516,28 @@ fn local_engine_status() -> Result<(), String> {
 
 fn provider_description(provider: VoiceProvider) -> &'static str {
     match provider {
-        VoiceProvider::Local => "Runs with a downloaded Parakeet model; audio stays on this Mac.",
-        VoiceProvider::OpenAi => "Sends each completed recording to OpenAI for transcription.",
-        VoiceProvider::Gemini => {
-            "Sends each completed recording to Google Gemini for transcription."
-        }
+        VoiceProvider::Local => "Transcribes on this Mac after an on-device model is downloaded.",
+        VoiceProvider::OpenAi => "Sends recordings to OpenAI for transcription.",
+        VoiceProvider::Gemini => "Sends recordings to Google for transcription.",
     }
 }
 
 impl SettingsView {
     fn voice_provider_items(&self) -> Vec<VoiceProviderItem> {
-        let mut items = vec![VoiceProviderItem {
-            value: VoiceProvider::Local,
-            label: "On-device (Parakeet)".into(),
-        }];
-        let mut seen = [false; 2];
-        for option in &self.voice.cloud_options {
-            let (index, name) = match option.provider {
-                VoiceProvider::OpenAi => (0, "OpenAI"),
-                VoiceProvider::Gemini => (1, "Google Gemini"),
-                VoiceProvider::Local => continue,
-            };
-            if seen[index] {
-                continue;
-            }
-            seen[index] = true;
-            let suffix = if option.configured {
-                ""
-            } else {
-                " · Set up required"
-            };
-            items.push(VoiceProviderItem {
-                value: option.provider,
-                label: format!("{name}{suffix}").into(),
-            });
-        }
-        // Keep the selector truthful during the short cloud-options loading
-        // window and when a legacy settings snapshot names a cloud provider.
-        if !seen[0] {
-            items.push(VoiceProviderItem {
+        vec![
+            VoiceProviderItem {
                 value: VoiceProvider::OpenAi,
-                label: "OpenAI · Set up required".into(),
-            });
-        }
-        if !seen[1] {
-            items.push(VoiceProviderItem {
+                label: "OpenAI".into(),
+            },
+            VoiceProviderItem {
                 value: VoiceProvider::Gemini,
-                label: "Google Gemini · Set up required".into(),
-            });
-        }
-        items
+                label: "Google Gemini".into(),
+            },
+            VoiceProviderItem {
+                value: VoiceProvider::Local,
+                label: "On-device (Parakeet)".into(),
+            },
+        ]
     }
 
     fn ensure_voice_provider_select(
@@ -604,18 +568,6 @@ impl SettingsView {
                 };
                 let provider = *provider;
                 if provider == this.voice.provider {
-                    return;
-                }
-                if let Some(option) = this
-                    .voice
-                    .cloud_options
-                    .iter()
-                    .find(|option| option.provider == provider)
-                    .filter(|option| !option.configured)
-                {
-                    cx.emit(cloud_setup_event(option));
-                    this.voice.error = None;
-                    cx.notify();
                     return;
                 }
                 let services = this.services.clone();
@@ -703,95 +655,43 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let well = crate::services::appearance::well_surface(cx);
         let provider_select = self.ensure_voice_provider_select(window, cx);
         let provider = self.voice.provider;
-        let selected_cloud_configured = self
-            .voice
-            .cloud_options
-            .iter()
-            .any(|option| option.provider == provider && option.configured);
-        let setup_options = self
-            .voice
-            .cloud_options
-            .iter()
-            .filter(|option| !option.configured)
-            .cloned()
-            .collect::<Vec<_>>();
+        let model_select =
+            (provider != VoiceProvider::Local).then(|| self.ensure_voice_model_select(window, cx));
         let migrated_to_local = self.voice.migrated_to_local;
+        let mut rows = vec![settings_field(
+            "voice-provider",
+            "Provider",
+            provider_description(provider),
+            Select::new(&provider_select)
+                .small()
+                .w(px(220.))
+                .disabled(self.voice.busy),
+            model_select.is_some(),
+            &theme,
+        )];
+        if let Some(model_select) = model_select {
+            rows.push(settings_field(
+                "voice-model",
+                "Model",
+                "Used for microphone input and the dictation shortcut.",
+                Select::new(&model_select)
+                    .small()
+                    .w(px(220.))
+                    .disabled(self.voice.busy),
+                false,
+                &theme,
+            ));
+        }
         v_flex()
             .id("voice-section")
             .w_full()
-            .gap_4()
-            .child(
-                v_flex()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Voice & dictation"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .mt_0p5()
-                            .child(
-                                "Choose on-device transcription or a configured cloud provider. \
-                                 Recording starts only from the composer mic or dictation hotkey; \
-                                 Aiden never saves or logs audio.",
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .px_4()
-                    .py_3()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Voice input"),
-                    )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        "On-device audio stays on this Mac. Cloud audio is sent only to the provider you explicitly select after recording.",
-                    ))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child("Provider"))
-                                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                        provider_description(self.voice.provider),
-                                    )),
-                            )
-                            .child(
-                                Select::new(&provider_select)
-                                    .small()
-                                    .w(px(220.))
-                                    .disabled(self.voice.busy),
-                            ),
-                    )
-                    .children(setup_options.into_iter().map(|option| {
-                        self.voice_provider_setup_row(option, cx)
-                    }))
-                    .when(provider == VoiceProvider::Local, |el| {
-                        el.child(self.on_device_panel(cx))
-                    })
-                    .when(selected_cloud_configured, |el| {
-                        el.child(self.cloud_model_panel(window, cx))
-                    }),
-            )
+            .child(settings_fieldset("Voice Input", rows, well))
+            .when(provider == VoiceProvider::Local, |view| {
+                view.child(self.on_device_panel(cx))
+            })
             .when(migrated_to_local, |el| {
                 el.child(
                     div()
@@ -820,127 +720,26 @@ impl SettingsView {
             })
     }
 
-    fn voice_provider_setup_row(
-        &self,
-        option: CloudVoiceOption,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let theme = cx.theme().clone();
-        h_flex()
-            .w_full()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .border_1()
-            .border_color(theme.border)
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(format!("{} setup required", option.setup_label)),
-                    )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        "Voice uses the same provider credential configured in Settings → Providers.",
-                    )),
-            )
-            .child(
-                Button::new(SharedString::from(format!(
-                    "voice-setup-{}",
-                    option.setup_provider_id
-                )))
-                .small()
-                .outline()
-                .label("Set up in Providers")
-                .on_click(cx.listener(move |_this, _event, _window, cx| {
-                    cx.emit(cloud_setup_event(&option));
-                })),
-            )
-            .into_any_element()
-    }
-
-    fn cloud_model_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
-        let provider = self.voice.provider;
-        let model_select = self.ensure_voice_model_select(window, cx);
-        let models = self
-            .voice
-            .cloud_options
-            .iter()
-            .find(|option| option.provider == provider)
-            .map(|option| option.models)
-            .unwrap_or_default();
-        v_flex()
-            .w_full()
-            .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Transcription model"),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Select::new(&model_select)
-                            .small()
-                            .w(px(260.))
-                            .disabled(self.voice.busy),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(format!("{} model options", models.len())),
-                    ),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child("The exact provider key and model are fixed before microphone capture; changing or signing out cancels the recording."),
-            )
-            .into_any_element()
-    }
-
     fn engine_status_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let content = match self.voice.engine_status.as_ref() {
-            None => h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    div()
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded_md()
-                        .bg(theme.muted.opacity(0.14))
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child("Checking…"),
-                )
+            None => div()
+                .px_1p5()
+                .py_0p5()
+                .rounded_md()
+                .bg(theme.muted.opacity(0.14))
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child("Checking…")
                 .into_any_element(),
-            Some(Ok(())) => h_flex()
-                .gap_2()
-                .items_center()
-                .child(
-                    div()
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded_md()
-                        .bg(theme.success.opacity(0.14))
-                        .text_xs()
-                        .text_color(theme.success)
-                        .child("Ready"),
-                )
+            Some(Ok(())) => div()
+                .px_1p5()
+                .py_0p5()
+                .rounded_md()
+                .bg(theme.success.opacity(0.14))
+                .text_xs()
+                .text_color(theme.success)
+                .child("Ready")
                 .into_any_element(),
             Some(Err(error)) => v_flex()
                 .items_end()
@@ -964,26 +763,14 @@ impl SettingsView {
                 )
                 .into_any_element(),
         };
-        h_flex()
-            .id("voice-engine-status")
-            .w_full()
-            .items_start()
-            .justify_between()
-            .gap_3()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child("Engine"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("The bundled Parakeet engine is checked locally; no model is downloaded automatically."),
-                    ),
-            )
-            .child(content)
-            .into_any_element()
+        settings_field(
+            "voice-engine-status",
+            "Engine",
+            "Transcription runs locally after you download a Parakeet model.",
+            content,
+            true,
+            &theme,
+        )
     }
 
     fn dictation_hotkey_row(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -998,140 +785,74 @@ impl SettingsView {
             .effective
             .get(aiden_core::CommandId::DictationToggle.as_str())
             .and_then(|binding| binding.as_deref());
-        let (state_label, state_color, detail, can_retry) = match status {
+        let (state_label, state_color, can_retry) = match status {
             Some(status) => match status.state {
-                GlobalShortcutState::Active => (
-                    "Active",
-                    theme.success,
-                    "Available while Aiden is running.".to_string(),
-                    false,
-                ),
-                GlobalShortcutState::Unavailable => (
-                    "Unavailable",
-                    theme.danger,
-                    status.message.clone().unwrap_or_else(|| {
-                        "The global dictation shortcut could not be registered.".to_string()
-                    }),
-                    true,
-                ),
-                GlobalShortcutState::Disabled => (
-                    "Off",
-                    theme.muted_foreground,
-                    "Enable the shortcut in Keyboard shortcuts to dictate from anywhere."
-                        .to_string(),
-                    false,
-                ),
+                GlobalShortcutState::Active => ("Active", theme.success, false),
+                GlobalShortcutState::Unavailable => ("Unavailable", theme.danger, true),
+                GlobalShortcutState::Disabled => ("Off", theme.muted_foreground, false),
             },
-            None => (
-                "Unavailable",
-                theme.muted_foreground,
-                "Shortcut runtime status is unavailable.".to_string(),
-                true,
-            ),
+            None => ("Unavailable", theme.muted_foreground, true),
         };
         let binding = pretty_accelerator(binding);
-        h_flex()
-            .id("voice-dictation-hotkey")
-            .w_full()
-            .items_start()
-            .justify_between()
-            .gap_3()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child("Dictation hotkey"),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(format!("{binding} · {state_label}")),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(detail),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .when(can_retry, |el| {
-                        el.child(
-                            Button::new("voice-retry-dictation-hotkey")
-                                .small()
-                                .ghost()
-                                .label("Retry")
-                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                    this.services
-                                        .shortcuts
-                                        .update(cx, |runtime, cx| runtime.retry_globals(cx));
-                                })),
-                        )
-                    })
-                    .child(
-                        Button::new("voice-manage-dictation-hotkey")
+        settings_field(
+            "voice-dictation-hotkey",
+            "Dictation hotkey",
+            "Press it from anywhere to dictate into the focused text field. When nothing editable is focused, the transcript is copied to the clipboard.",
+            h_flex()
+                .flex_wrap()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_md()
+                        .bg(state_color.opacity(0.14))
+                        .text_xs()
+                        .text_color(state_color)
+                        .child(state_label),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(binding),
+                )
+                .when(can_retry, |el| {
+                    el.child(
+                        Button::new("voice-retry-dictation-hotkey")
                             .small()
                             .ghost()
-                            .label("Manage shortcuts")
+                            .label("Retry")
                             .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.active = SettingsSection::Shortcut;
-                                cx.notify();
+                                this.services
+                                    .shortcuts
+                                    .update(cx, |runtime, cx| runtime.retry_globals(cx));
                             })),
-                    ),
-            )
-            .child(
-                div()
-                    .px_1p5()
-                    .py_0p5()
-                    .rounded_md()
-                    .bg(state_color.opacity(0.14))
-                    .text_xs()
-                    .text_color(state_color)
-                    .child(state_label),
-            )
-            .into_any_element()
+                    )
+                })
+                .child(
+                    Button::new("voice-manage-dictation-hotkey")
+                        .small()
+                        .label("Manage shortcuts")
+                        .on_click(cx.listener(|this, _event, _window, cx| {
+                            this.active = SettingsSection::Shortcut;
+                            cx.notify();
+                        })),
+                ),
+            true,
+            &theme,
+        )
     }
 
     fn accessibility_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let trusted = self.voice.accessibility_trusted;
-        h_flex()
-            .id("voice-accessibility-access")
-            .w_full()
-            .items_start()
-            .justify_between()
-            .gap_3()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("Accessibility access"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("Lets Aiden paste dictated text into the focused field. Without it, transcripts stay on the clipboard."),
-                    ),
-            )
-            .child(match trusted {
+        settings_field(
+            "voice-accessibility-access",
+            "Accessibility access",
+            "Lets Aiden paste dictated text into the focused text field. Without it, transcripts are copied to the clipboard instead.",
+            match trusted {
                 None => h_flex()
                     .gap_2()
                     .items_center()
@@ -1201,8 +922,10 @@ impl SettingsView {
                             })),
                     )
                     .into_any_element(),
-            })
-            .into_any_element()
+            },
+            false,
+            &theme,
+        )
     }
 
     fn refresh_accessibility(&mut self, prompt: bool, cx: &mut Context<Self>) {
@@ -1229,148 +952,156 @@ impl SettingsView {
         .detach();
     }
 
-    /// The on-device engine panel: models, selected model, mic permission.
-    fn on_device_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The on-device settings use the same two FieldSet groups as the
+    /// renderer. Model management becomes its own subview instead of growing
+    /// an unrelated panel inside the settings rows.
+    fn on_device_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let well = crate::services::appearance::well_surface(cx);
         let state = &self.voice;
         let models = state.models.as_deref();
-        let model_controls = match models {
-            None => div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Checking for on-device models…")
-                .into_any_element(),
-            Some(models) if !state.models_manager_open => {
-                let active = state.local_voice_model.as_deref().and_then(|id| {
-                    models
-                        .iter()
-                        .find(|model| model.id == id && model.installed)
-                });
-                let copy = active
-                    .map(|model| {
-                        format!(
-                            "{} · {} · {}",
-                            model.name, model.size_label, model.languages_label
+
+        if state.models_manager_open {
+            let model_list = match models {
+                None => div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child("Loading models…")
+                    .into_any_element(),
+                Some(models) => {
+                    let border = theme.border;
+                    div()
+                        .w_full()
+                        .overflow_hidden()
+                        .rounded(px(super::SETTINGS_CARD_RADIUS_PX))
+                        .border_1()
+                        .border_color(border)
+                        .bg(well)
+                        .children(
+                            models
+                                .iter()
+                                .enumerate()
+                                .map(|(index, model)| self.model_row(model, index, border, cx))
+                                .collect::<Vec<_>>(),
                         )
-                    })
-                    .unwrap_or_else(|| {
-                        "No installed model selected. Open Manage models to download one."
-                            .to_string()
-                    });
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .bg(theme.muted.opacity(0.08))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child("Active model"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(copy),
-                            ),
-                    )
-                    .into_any_element()
-            }
-            Some(models) => {
-                let border = theme.border;
+                        .into_any_element()
+                }
+            };
+            return v_flex()
+                .id("voice-model-manager")
+                .w_full()
+                .gap_4()
+                .child(
+                    Button::new("voice-model-manager-back")
+                        .small()
+                        .ghost()
+                        .icon(IconName::ChevronLeft)
+                        .label("Back")
+                        .on_click(cx.listener(|this, _event, _window, cx| {
+                            this.voice.models_manager_open = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_lg()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Transcription Models"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("Download and manage on-device models. Everything runs locally — no audio leaves your Mac."),
+                        ),
+                )
+                .child(model_list)
+                .into_any_element();
+        }
+
+        let installed_count = models.map_or(0, |models| {
+            models.iter().filter(|model| model.installed).count()
+        });
+        let active = models.and_then(|models| {
+            state.local_voice_model.as_deref().and_then(|id| {
+                models
+                    .iter()
+                    .find(|model| model.id == id && model.installed)
+            })
+        });
+        let mut engine_rows = vec![self.engine_status_row(cx)];
+        if installed_count == 0 {
+            engine_rows.push(
                 div()
+                    .relative()
                     .w_full()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(border)
-                    .children(
-                        models
-                            .iter()
-                            .enumerate()
-                            .map(|(index, model)| self.model_row(model, index, border, cx))
-                            .collect::<Vec<_>>(),
+                    .p_4()
+                    .child(
+                        div()
+                            .w_full()
+                            .rounded_md()
+                            .bg(well)
+                            .px_3()
+                            .py_2()
+                            .text_xs()
+                            .child("No on-device models yet. Download one to start transcribing locally."),
                     )
-                    .into_any_element()
-            }
-        };
+                    .child(
+                        div()
+                            .absolute()
+                            .left_4()
+                            .right_4()
+                            .bottom_0()
+                            .h(px(1.))
+                            .bg(theme.border),
+                    )
+                    .into_any_element(),
+            );
+        } else {
+            engine_rows.push(settings_field(
+                "voice-active-model",
+                "Active model",
+                "Used when you dictate with the on-device provider.",
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(active.map_or_else(
+                        || "None selected".to_string(),
+                        |model| model.name.to_string(),
+                    )),
+                true,
+                &theme,
+            ));
+        }
+        engine_rows.push(settings_field(
+            "voice-models",
+            "Models",
+            "Download, remove, and choose your on-device transcription model.",
+            Button::new("voice-manage-models")
+                .small()
+                .icon(IconName::Settings2)
+                .label("Manage Models")
+                .disabled(state.busy && state.downloading.is_none())
+                .on_click(cx.listener(|this, _event, _window, cx| {
+                    this.voice.models_manager_open = true;
+                    cx.notify();
+                })),
+            false,
+            &theme,
+        ));
+
         v_flex()
             .w_full()
-            .gap_2()
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("On-device engine"),
-                    )
-                    .child(
-                        div()
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded_md()
-                            .bg(theme.info.opacity(0.14))
-                            .text_xs()
-                            .text_color(theme.info)
-                            .child("Parakeet"),
-                    ),
-            )
-            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                "Download a model to transcribe locally. The selected model is used by \
-                         the dictation shortcut.",
+            .child(settings_fieldset("On-Device Engine", engine_rows, well))
+            .child(settings_fieldset(
+                "Dictation Shortcut",
+                vec![self.dictation_hotkey_row(cx), self.accessibility_row(cx)],
+                well,
             ))
-            .child(self.engine_status_row(cx))
-            .child(self.mic_permission_row(state.mic_permission, cx))
-            .child(self.dictation_hotkey_row(cx))
-            .child(self.accessibility_row(cx))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child("Models"),
-                            )
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                "Download, remove, and choose the on-device transcription model.",
-                            )),
-                    )
-                    .child(
-                        Button::new("voice-manage-models")
-                            .small()
-                            .outline()
-                            .label(if state.models_manager_open {
-                                "Hide models"
-                            } else {
-                                "Manage models"
-                            })
-                            .disabled(state.busy && state.downloading.is_none())
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.voice.models_manager_open = !this.voice.models_manager_open;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(model_controls)
+            .into_any_element()
     }
 
     /// One Parakeet model row: name + size, select/download/delete actions.
@@ -1556,53 +1287,6 @@ impl SettingsView {
                 .into_any_element()
         })
     }
-
-    /// The microphone permission status row.
-    fn mic_permission_row(
-        &self,
-        permission: Option<MicrophonePermission>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let (label, color) = match permission {
-            Some(MicrophonePermission::Granted) => ("Granted", theme.success),
-            Some(MicrophonePermission::Denied) => ("Denied", theme.danger),
-            Some(MicrophonePermission::Undetermined) => {
-                ("Not requested yet", theme.muted_foreground)
-            }
-            Some(MicrophonePermission::Unknown) | None => ("Unknown", theme.muted_foreground),
-        };
-        h_flex()
-            .w_full()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Microphone access"),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded_md()
-                            .bg(color.opacity(0.14))
-                            .text_xs()
-                            .text_color(color)
-                            .child(label),
-                    )
-                    .when(permission == Some(MicrophonePermission::Denied), |el| {
-                        el.child(div().text_xs().text_color(theme.muted_foreground).child(
-                            "Grant access in System Settings → Privacy & Security → Microphone",
-                        ))
-                    }),
-            )
-    }
 }
 
 #[cfg(test)]
@@ -1624,7 +1308,7 @@ mod tests {
     }
 
     #[test]
-    fn hydrate_preserves_an_explicit_cloud_model_and_setup_event_binding() {
+    fn hydrate_preserves_an_explicit_cloud_model() {
         let mut settings = serde_json::Map::new();
         settings.insert(VOICE_PROVIDER_KEY.into(), serde_json::json!("gemini"));
         settings.insert(
@@ -1635,23 +1319,6 @@ mod tests {
         state.hydrate(&settings);
         assert_eq!(state.provider, VoiceProvider::Gemini);
         assert_eq!(state.cloud_model.as_deref(), Some("gemini-2.5-flash"));
-
-        let option = CloudVoiceOption {
-            provider: VoiceProvider::Gemini,
-            configured: false,
-            models: crate::services::voice::GEMINI_MODELS,
-            setup_provider_id: "google",
-            setup_label: "Google",
-            authority_revision: 42,
-        };
-        assert_eq!(
-            cloud_setup_event(&option),
-            SettingsEvent::PiProviderSetupRequested {
-                provider_id: "google".into(),
-                label: "Google".into(),
-                authority_revision: 42,
-            }
-        );
     }
 
     #[test]

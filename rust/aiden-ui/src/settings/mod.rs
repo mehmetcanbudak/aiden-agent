@@ -24,11 +24,11 @@ use aiden_data::secret_map::ProviderKeysStore;
 use aiden_mcp::client::McpClientManager;
 use aiden_scheduler::runtime::SchedulerCore;
 use gpui::{
-    div, prelude::FluentBuilder as _, AppContext as _, Context, EventEmitter,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    div, prelude::FluentBuilder as _, relative, AnyElement, AppContext as _, Context, EventEmitter,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
-use gpui_component::{v_flex, ActiveTheme};
+use gpui_component::{h_flex, v_flex, ActiveTheme};
 use gpui_tokio_bridge::Tokio;
 
 mod about;
@@ -36,13 +36,13 @@ mod appearance;
 mod assistant;
 pub mod catalog;
 mod computer_use;
-mod mcp;
+pub(crate) mod mcp;
 mod model_data;
 #[allow(dead_code)]
 mod model_pad;
 pub(crate) mod navigation;
 pub(crate) mod providers;
-mod scheduled;
+pub(crate) mod scheduled;
 mod shortcuts;
 pub(crate) mod skills;
 mod voice;
@@ -63,11 +63,114 @@ pub enum SettingsEvent {
     /// acknowledgement; the app-root reducer must reopen it for the next
     /// per-chat opt-in in this running session.
     ComputerUsePrivacyNoticeRestored,
+    /// The About surface requested the exact destructive reset confirmation.
+    OnboardingResetRequested,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 const SETTINGS_CONTENT_MAX_WIDTH_PX: f32 = 672.0;
+pub(crate) const SETTINGS_CARD_RADIUS_PX: f32 = 12.0;
+pub(crate) const SETTINGS_SECTION_TITLE_PX: f32 = 16.0;
+pub(crate) const SETTINGS_TEXT_PX: f32 = 14.0;
+pub(crate) const SETTINGS_SMALL_TEXT_PX: f32 = 13.0;
+
+pub(crate) fn settings_fieldset(
+    title: &'static str,
+    rows: Vec<AnyElement>,
+    well_surface: Hsla,
+) -> AnyElement {
+    settings_fieldset_with_title(div().child(title).into_any_element(), rows, well_surface)
+}
+
+pub(crate) fn settings_fieldset_with_title(
+    title: AnyElement,
+    rows: Vec<AnyElement>,
+    well_surface: Hsla,
+) -> AnyElement {
+    v_flex()
+        .w_full()
+        .mb_7()
+        .child(
+            div()
+                .mb_3()
+                .px_4()
+                .text_size(gpui::px(SETTINGS_SECTION_TITLE_PX))
+                .font_weight(FontWeight::MEDIUM)
+                .child(title),
+        )
+        .child(
+            v_flex()
+                .w_full()
+                .overflow_hidden()
+                .rounded(gpui::px(SETTINGS_CARD_RADIUS_PX))
+                .bg(well_surface)
+                .children(rows),
+        )
+        .into_any_element()
+}
+
+pub(crate) fn settings_field(
+    id: &'static str,
+    label: &'static str,
+    description: impl Into<SharedString>,
+    control: impl IntoElement,
+    separator: bool,
+    theme: &gpui_component::Theme,
+) -> AnyElement {
+    let description = description.into();
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .child(
+            h_flex()
+                .w_full()
+                .min_h(gpui::px(48.0))
+                .items_center()
+                .gap_5()
+                .p_4()
+                .child(
+                    v_flex()
+                        .w(relative(0.4))
+                        .min_w(gpui::px(0.0))
+                        .child(
+                            div()
+                                .text_size(gpui::px(SETTINGS_TEXT_PX))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label),
+                        )
+                        .when(!description.is_empty(), |column| {
+                            column.child(
+                                div()
+                                    .mt(gpui::px(2.0))
+                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_color(theme.secondary_foreground)
+                                    .child(description),
+                            )
+                        }),
+                )
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_w(gpui::px(0.0))
+                        .justify_end()
+                        .child(control),
+                ),
+        )
+        .when(separator, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .left_4()
+                    .right_4()
+                    .bottom_0()
+                    .h(gpui::px(1.0))
+                    .bg(theme.border),
+            )
+        })
+        .into_any_element()
+}
 
 /// Everything the settings surface needs from the data layer. The orchestrator
 /// constructs this (convenience constructor: [`SettingsServices::from_stores`])
@@ -89,6 +192,7 @@ pub struct SettingsServices {
     pub scheduler_executor: Arc<crate::services::scheduled_execution::ProductionScheduledExecutor>,
     pub mcp: Arc<McpClientManager>,
     pub mcp_mutation: Arc<crate::services::mcp_mutation::McpMutationAuthority>,
+    pub app_updates: Arc<crate::services::app_updates::AppUpdateAuthority>,
     pub shortcuts: gpui::Entity<crate::shortcut_runtime::ShortcutRuntime>,
     pub appearance_service: gpui::Entity<crate::services::chat_service::ChatService>,
     /// Device-local, network-free personal model arrangement.
@@ -123,10 +227,54 @@ impl SettingsServices {
             scheduler_executor: stores.scheduler_executor.clone(),
             mcp: stores.mcp.clone(),
             mcp_mutation: stores.mcp_mutation.clone(),
+            app_updates: stores.app_updates.clone(),
             shortcuts,
             appearance_service,
             model_pad: Arc::new(ModelPadStore::default()),
             aa: model_data::build_aa_runtime(),
+        }
+    }
+
+    /// Clear setup-owned state after the user confirms Reset onboarding.
+    /// User-created chats, workspaces, schedules, skills, and downloaded local
+    /// models are deliberately owned by other stores and remain untouched.
+    pub(crate) async fn reset_onboarding_data(&self) -> Result<(), String> {
+        let mut failed = false;
+        if self.aa.disconnect().await.is_err() {
+            failed = true;
+        }
+        if self
+            .mcp_mutation
+            .clear_all_for_onboarding_reset()
+            .await
+            .is_err()
+        {
+            failed = true;
+        }
+
+        let config = self.config.clone();
+        let keys = self.keys.clone();
+        let pi_providers = self.pi_providers.clone();
+        let local_failed = tokio::task::spawn_blocking(move || {
+            let mut failed = false;
+            if config.reset_user_setup().is_err() {
+                failed = true;
+            }
+            if keys.clear_all().is_err() {
+                failed = true;
+            }
+            if pi_providers.clear_all().is_err() {
+                failed = true;
+            }
+            failed
+        })
+        .await
+        .unwrap_or(true);
+
+        if failed || local_failed {
+            Err("Aiden couldn’t clear every setup item. Retry Reset onboarding.".to_string())
+        } else {
+            Ok(())
         }
     }
 }
@@ -441,6 +589,11 @@ impl SettingsView {
     pub(crate) fn active_section(&self) -> SettingsSection {
         self.active
     }
+
+    pub(crate) fn onboarding_reset_services(&self) -> SettingsServices {
+        self.services.clone()
+    }
+
     /// Refresh the provider + settings snapshots after a mutation (all section
     /// mutations run on the background and then call this).
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {

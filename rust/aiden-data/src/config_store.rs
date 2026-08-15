@@ -852,6 +852,37 @@ impl ConfigStore {
         })
     }
 
+    /// Clear setup-owned configuration while preserving user-created work.
+    ///
+    /// This is the Rust counterpart of Electron's `resetUserSetup`: providers,
+    /// aliases, MCP connections, preferences, and provider model cache are
+    /// removed. Skills and machine-local workspaces remain untouched; chats,
+    /// schedules, downloaded models, and other stores are outside ConfigStore.
+    pub fn reset_user_setup(&self) -> Result<(), ConfigStoreError> {
+        self.serialized(|store| {
+            store.mutate_portable(
+                |config| {
+                    config.providers.clear();
+                    config.provider_id_aliases.clear();
+                    config.mcp_servers.clear();
+                    Ok(())
+                },
+                &|| true,
+            )?;
+            store.stores.model_cache.update(|cache| {
+                cache.by_provider.clear();
+            })?;
+            store.mutate_settings(
+                |document| {
+                    document.settings.clear();
+                    Ok(())
+                },
+                &|| true,
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn set_settings(
         &self,
         patch: &Map<String, Value>,
@@ -1525,6 +1556,68 @@ mod tests {
         assert_eq!(store.list_skills().unwrap().len(), 1);
         store.remove_skill("skill-1").unwrap();
         assert!(store.list_skills().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reset_user_setup_clears_setup_but_preserves_skills_and_workspaces() {
+        let (_portable, _local, store) = fixture();
+        store
+            .save_provider(&intent_provider("custom:test", "Test"), &|| true)
+            .unwrap();
+        store
+            .save_mcp_server(
+                &McpServer {
+                    id: "filesystem".into(),
+                    name: "Filesystem".into(),
+                    transport: McpTransport::Stdio,
+                    command: Some("mcp-fs".into()),
+                    args: None,
+                    env: None,
+                    url: None,
+                    headers: None,
+                    oauth: None,
+                    preset_id: None,
+                    enabled: true,
+                },
+                &|| true,
+            )
+            .unwrap();
+        store
+            .save_skill(&Skill {
+                id: "summarize".into(),
+                name: "Summarize".into(),
+                description: "Summarize a document".into(),
+                instructions: "Keep it concise.".into(),
+                enabled: true,
+            })
+            .unwrap();
+        let workspace = Workspace {
+            id: "project".into(),
+            name: "Project".into(),
+            folder_path: Some("/tmp/project".into()),
+            permission: WorkspacePermission::Ask,
+            managed_worktree: None,
+            created_at: 1,
+            updated_at: 1,
+        };
+        store.save_workspace(&workspace).unwrap();
+        let mut settings = Map::new();
+        settings.insert("profileName".into(), Value::String("Aiden".into()));
+        settings.insert("exaEnabled".into(), Value::Bool(true));
+        store.set_settings(&settings, &|| true).unwrap();
+
+        store.reset_user_setup().unwrap();
+
+        assert!(store.list_providers().unwrap().is_empty());
+        assert!(store.list_mcp_servers().unwrap().is_empty());
+        assert!(store.get_settings().unwrap().is_empty());
+        assert_eq!(store.list_skills().unwrap().len(), 1);
+        assert!(store
+            .list_workspaces()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate.id == workspace.id));
+        assert!(store.read_model_cache().unwrap().by_provider.is_empty());
     }
 
     #[test]

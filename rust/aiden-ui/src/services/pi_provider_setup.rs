@@ -1,8 +1,8 @@
 //! App-lifetime authority for Pi-native provider inventory and credentials.
 //!
-//! The release-pinned descriptor table is local-only. It is combined with the
-//! bundled model-capabilities snapshot at read time; ordinary boot/status reads
-//! never contact a provider or open a browser.
+//! The release-pinned descriptor and model tables are local-only. They are
+//! generated from the exact Pi package used by the matching Electron release;
+//! ordinary boot/status reads never contact a provider or open a browser.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -10,15 +10,13 @@ use std::sync::Arc;
 
 use aiden_data::pi_credential_store::{EncryptedPiCredentialStore, PiCredentialError};
 use aiden_data::portable_config::{ProviderDeployment, ProviderKind, ProviderModelMetadata};
-use aiden_providers::model_capabilities::{
-    load_default_capabilities, lookup_provider, ModelCapabilitiesCatalog,
-};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 use crate::services::provider_kit::ConfiguredProvider;
 
 const MAX_API_KEY_BYTES: usize = 64 * 1024;
+const PI_MODEL_INVENTORY_JSON: &str = include_str!("../../../../resources/pi-models-0.80.10.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PiNativeApi {
@@ -285,7 +283,7 @@ impl From<PiCredentialError> for PiProviderSetupError {
 
 pub struct PiProviderSetupAuthority {
     credentials: Arc<EncryptedPiCredentialStore>,
-    catalog: ModelCapabilitiesCatalog,
+    models: HashMap<String, Vec<String>>,
     revision: AtomicU64,
     mutation: Mutex<()>,
     changed: tokio::sync::watch::Sender<u64>,
@@ -293,11 +291,12 @@ pub struct PiProviderSetupAuthority {
 
 impl PiProviderSetupAuthority {
     pub fn new(credentials: Arc<EncryptedPiCredentialStore>) -> Arc<Self> {
-        let catalog = load_default_capabilities().unwrap_or_default();
+        let models = serde_json::from_str(PI_MODEL_INVENTORY_JSON)
+            .expect("the release-pinned Pi model inventory must be valid JSON");
         let (changed, _) = tokio::sync::watch::channel(0);
         Arc::new(Self {
             credentials,
-            catalog,
+            models,
             revision: AtomicU64::new(0),
             mutation: Mutex::new(()),
             changed,
@@ -402,6 +401,26 @@ impl PiProviderSetupAuthority {
         Ok(())
     }
 
+    /// Delete every Pi-owned provider credential while preserving the
+    /// release-pinned provider catalog itself. Used only by the explicit,
+    /// confirmed onboarding reset flow.
+    pub fn clear_all(&self) -> Result<(), PiProviderSetupError> {
+        let _guard = self.mutation.lock();
+        self.revision.fetch_add(1, Ordering::SeqCst);
+        let entries = self.credentials.list()?;
+        let mut first_error = None;
+        for entry in entries {
+            if let Err(error) = self.credentials.delete(&entry.provider_id) {
+                first_error.get_or_insert(error);
+            }
+        }
+        let _ = self.changed.send(self.revision.load(Ordering::SeqCst));
+        match first_error {
+            Some(error) => Err(error.into()),
+            None => Ok(()),
+        }
+    }
+
     fn publish(&self) {
         let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = self.changed.send(revision);
@@ -439,11 +458,7 @@ impl PiProviderSetupAuthority {
     }
 
     fn provider(&self, descriptor: &PiProviderDescriptor) -> ConfiguredProvider {
-        let catalog = lookup_provider(&self.catalog, descriptor.id);
-        let mut models = catalog
-            .map(|entry| entry.models.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-        models.sort();
+        let models = self.models.get(descriptor.id).cloned().unwrap_or_default();
         let kind = if descriptor.api == Some(PiNativeApi::Anthropic) {
             ProviderKind::Anthropic
         } else {
@@ -465,10 +480,7 @@ impl PiProviderSetupAuthority {
     }
 
     fn binding(&self, descriptor: &PiProviderDescriptor) -> String {
-        let mut models = lookup_provider(&self.catalog, descriptor.id)
-            .map(|entry| entry.models.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-        models.sort();
+        let models = self.models.get(descriptor.id).cloned().unwrap_or_default();
         let value = serde_json::json!({ "release": "pi-ai@0.80.10", "id": descriptor.id, "baseUrl": descriptor.base_url, "api": format!("{:?}", descriptor.api), "models": models });
         format!("{:x}", Sha256::digest(value.to_string().as_bytes()))
     }
@@ -564,6 +576,24 @@ mod tests {
                 .all(|model| !model.is_empty() && model.len() <= 256));
             assert!(!status.auth_methods.is_empty());
         }
+    }
+
+    #[test]
+    fn featured_provider_model_counts_match_pi_ai_0_80_10_exactly() {
+        let directory = tempfile::tempdir().unwrap();
+        let authority = authority(directory.path(), Arc::new(MemoryCipher::default()));
+        let counts = authority
+            .list()
+            .into_iter()
+            .map(|status| (status.provider.id, status.provider.models.len()))
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(counts.get("openai"), Some(&46));
+        assert_eq!(counts.get("anthropic"), Some(&14));
+        assert_eq!(counts.get("google"), Some(&16));
+        assert_eq!(counts.get("xai"), Some(&3));
+        assert_eq!(counts.get("openrouter"), Some(&271));
+        assert_eq!(counts.get("opencode"), Some(&54));
     }
 
     #[test]

@@ -488,6 +488,7 @@ pub struct ShortcutRuntime {
 #[derive(Debug, Clone)]
 enum RuntimeRequest {
     Mutation(KeybindingMutation),
+    #[allow(dead_code)]
     ResetAll,
 }
 
@@ -548,6 +549,7 @@ impl ShortcutRuntime {
         self.start_next(cx);
     }
 
+    #[allow(dead_code)]
     pub fn reset_all(&mut self, cx: &mut Context<Self>) {
         self.queue.push_back(RuntimeRequest::ResetAll);
         self.start_next(cx);

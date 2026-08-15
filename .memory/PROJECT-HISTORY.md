@@ -1,3 +1,29 @@
+### 2026-08-16 — Current v0.28.39 GPUI page/component parity certification
+
+- Re-audited the exact merged Electron `v0.28.39` source against the native
+  GPUI executable after the reported side-by-side mismatch. `origin/main`
+  (`c8053ba`) remains an ancestor of merge commit `09c611e`, which additionally
+  carries the exact `v0.28.39` release tag; the TypeScript renderer is retained
+  as the reference but is not loaded by `npm run dev:rs`.
+- Reconciled the returning-user titlebar/sidebar/chat/composer shell,
+  onboarding, all 12 Settings destinations, and their root-owned dialogs.
+  The final tranche adds the source provider inventory, real application and
+  route assets, Model Pad lattice, source MCP card grid and marks, shared
+  FieldSet/Field and 40x24 switch controls, exact editor/confirmation dialog
+  geometry, Assistant-dock occlusion, delete/reset confirmations, and
+  route-specific loading/empty/configured/error states.
+- Recaptured each source route and current GPUI route, created normalized
+  side-by-side pairs and Agent/App contact sheets, and captured Provider,
+  Skill, and MCP root dialogs. `design-qa.md` records every evidence path,
+  dimension, hash, the isolated-profile state boundary, and the final result:
+  no P0/P1/P2 page/component mismatch remains in the audited matrix.
+- Final release gates pass: 793 `aiden-ui` tests, the complete Rust workspace
+  and doc-test suite, strict all-target/all-feature workspace Clippy, rustfmt,
+  `npm test` including native helper gates, TypeScript type-checking, ESLint,
+  and diff validation. Explicit non-matrix limits such as native typeset math
+  and depth-2/background Subagent execution remain documented follow-up work;
+  they are not represented as silently complete.
+
 ### 2026-08-15 — Main sync and GPUI visual-parity repair
 
 - Merged current `origin/main` (`c8053ba`) into `gpui-rust` as `c437938`,

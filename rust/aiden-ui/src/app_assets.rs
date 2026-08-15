@@ -7,8 +7,30 @@ pub struct AppAssets;
 
 const APP_ASSET_PATHS: &[&str] = &[
     "native-icons/blocks.svg",
+    "native-icons/folder-git-2.svg",
     "native-icons/lock.svg",
+    "native-icons/log-in.svg",
     "native-icons/network.svg",
+    "native-icons/octagon-alert.svg",
+    "native-icons/refresh-cw.svg",
+    "native-icons/shield-question.svg",
+    "native-icons/mcp/composio.svg",
+    "native-icons/mcp/linear.svg",
+    "native-icons/mcp/notion.svg",
+    "native-icons/settings/chart-scatter.svg",
+    "native-icons/settings/clock-3.svg",
+    "native-icons/settings/file-up.svg",
+    "native-icons/settings/globe.svg",
+    "native-icons/settings/info.svg",
+    "native-icons/settings/keyboard.svg",
+    "native-icons/settings/list-filter.svg",
+    "native-icons/settings/mic.svg",
+    "native-icons/settings/mouse-pointer-2.svg",
+    "native-icons/settings/palette.svg",
+    "native-icons/settings/plug.svg",
+    "native-icons/settings/server.svg",
+    "native-icons/settings/sparkles.svg",
+    "native-icons/settings/wand-sparkles.svg",
     "provider-logos/amazon-bedrock.svg",
     "provider-logos/ant-ling.svg",
     "provider-logos/anthropic.svg",
@@ -56,11 +78,77 @@ fn app_asset(path: &str) -> Option<&'static [u8]> {
         "native-icons/blocks.svg" => {
             include_bytes!("../../../renderer/assets/native-icons/blocks.svg")
         }
+        "native-icons/folder-git-2.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/folder-git-2.svg")
+        }
         "native-icons/lock.svg" => {
             include_bytes!("../../../renderer/assets/native-icons/lock.svg")
         }
+        "native-icons/log-in.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/log-in.svg")
+        }
         "native-icons/network.svg" => {
             include_bytes!("../../../renderer/assets/native-icons/network.svg")
+        }
+        "native-icons/octagon-alert.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/octagon-alert.svg")
+        }
+        "native-icons/refresh-cw.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/refresh-cw.svg")
+        }
+        "native-icons/shield-question.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/shield-question.svg")
+        }
+        "native-icons/mcp/composio.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/mcp/composio.svg")
+        }
+        "native-icons/mcp/linear.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/mcp/linear.svg")
+        }
+        "native-icons/mcp/notion.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/mcp/notion.svg")
+        }
+        "native-icons/settings/chart-scatter.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/chart-scatter.svg")
+        }
+        "native-icons/settings/clock-3.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/clock-3.svg")
+        }
+        "native-icons/settings/file-up.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/file-up.svg")
+        }
+        "native-icons/settings/globe.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/globe.svg")
+        }
+        "native-icons/settings/info.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/info.svg")
+        }
+        "native-icons/settings/keyboard.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/keyboard.svg")
+        }
+        "native-icons/settings/list-filter.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/list-filter.svg")
+        }
+        "native-icons/settings/mic.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/mic.svg")
+        }
+        "native-icons/settings/mouse-pointer-2.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/mouse-pointer-2.svg")
+        }
+        "native-icons/settings/palette.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/palette.svg")
+        }
+        "native-icons/settings/plug.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/plug.svg")
+        }
+        "native-icons/settings/server.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/server.svg")
+        }
+        "native-icons/settings/sparkles.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/sparkles.svg")
+        }
+        "native-icons/settings/wand-sparkles.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/settings/wand-sparkles.svg")
         }
         "provider-logos/amazon-bedrock.svg" => {
             include_bytes!("../../../renderer/assets/provider-logos/amazon-bedrock.svg")
@@ -218,6 +306,14 @@ mod tests {
             .is_some());
         assert!(AppAssets
             .load("native-icons/network.svg")
+            .unwrap()
+            .is_some());
+        assert!(AppAssets
+            .load("native-icons/settings/chart-scatter.svg")
+            .unwrap()
+            .is_some());
+        assert!(AppAssets
+            .load("native-icons/settings/mouse-pointer-2.svg")
             .unwrap()
             .is_some());
         assert!(AppAssets.load("icons/check.svg").unwrap().is_some());

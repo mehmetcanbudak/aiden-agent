@@ -23,14 +23,16 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    switch::Switch,
+    scroll::ScrollableElement as _,
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, StyledExt as _,
 };
 
-use super::SettingsView;
+use crate::controls::Switch;
+
+use super::{settings_field, SettingsView};
 
 const MANAGED_ROW_HEIGHT: f32 = 68.0;
-const DISCOVERED_ROW_HEIGHT: f32 = 60.0;
+const DISCOVERED_ROW_HEIGHT: f32 = 72.0;
 const LIST_MAX_HEIGHT: f32 = 480.0;
 const INSTRUCTIONS_MIN_HEIGHT: f32 = 160.0;
 const INSTRUCTIONS_MAX_HEIGHT: f32 = 320.0;
@@ -100,6 +102,7 @@ pub(crate) struct SkillsState {
     pub(crate) modal_last_focus: FocusHandle,
     new_skill_focus: FocusHandle,
     return_focus: Option<FocusHandle>,
+    forced_editor_applied: bool,
 }
 
 impl SkillsState {
@@ -122,6 +125,7 @@ impl SkillsState {
             modal_last_focus: cx.focus_handle(),
             new_skill_focus: cx.focus_handle(),
             return_focus: None,
+            forced_editor_applied: false,
         }
     }
 
@@ -509,6 +513,15 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        if !self.skills.forced_editor_applied {
+            self.skills.forced_editor_applied = true;
+            let dev = std::env::var("AIDEN_DEV")
+                .ok()
+                .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE"));
+            if dev && std::env::var("AIDEN_FORCE_SKILLS_MODAL").is_ok() {
+                self.open_skill_editor(None, window, cx);
+            }
+        }
         let theme = cx.theme().clone();
         let configured_len = self.skills.configured.len();
         let discovered_len = self.skills.discovered.len();
@@ -516,17 +529,22 @@ impl SettingsView {
 
         v_flex()
             .id("settings-skills")
+            .w_full()
+            .min_w(px(0.))
             .gap_4()
             .child(
                 h_flex()
+                    .w_full()
+                    .min_w(px(0.))
                     .items_start()
                     .justify_between()
                     .gap_4()
                     .child(
                         v_flex()
+                            .flex_1()
                             .min_w(px(0.))
-                            .gap_1()
-                            .child(div().font_semibold().child("Skills"))
+                            .gap_0p5()
+                            .child(div().font_weight(FontWeight::MEDIUM).child("Skills"))
                             .child(
                                 div()
                                     .text_sm()
@@ -584,14 +602,16 @@ impl SettingsView {
             .when(discovered_len > 0, |el| {
                 el.child(
                     v_flex()
+                        .w_full()
+                        .min_w(px(0.))
                         .pt_2()
                         .gap_2()
-                        .child(div().font_semibold().child("From skill folders"))
+                        .child(div().font_weight(FontWeight::MEDIUM).child("From skill folders"))
                         .child(
                             div()
                                 .text_sm()
                                 .text_color(theme.muted_foreground)
-                                .child("Auto-discovered SKILL.md files in workspace and global .agents/skills, .claude/skills, and .aiden/{skill,skills} folders. Always available."),
+                                .child("Auto-discovered SKILL.md files in workspace and global .agents/skills, .claude/skills, and .aiden/{skill,skills} folders. Availability follows the same collision and safety rules as the composer and model."),
                         )
                         .child(self.discovered_skills_list(discovered_len, cx)),
                 )
@@ -610,103 +630,114 @@ impl SettingsView {
         v_flex()
             .id("settings-managed-skills-card")
             .h(px(height))
-            .rounded_lg()
+            .rounded(px(12.))
             .border_1()
             .border_color(theme.border)
             .overflow_hidden()
-            .child(uniform_list(
-                "settings-managed-skills-list",
-                count,
-                cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                    range
-                        .map(|index| {
-                            let skill = this.skills.configured[index].clone();
-                            let row_id = SharedString::from(format!("managed-skill-{}", skill.id));
-                            h_flex()
-                                .id(row_id)
-                                .h(px(MANAGED_ROW_HEIGHT))
-                                .px_3p5()
-                                .py_3()
-                                .gap_3()
-                                .border_b_1()
-                                .border_color(theme.border)
-                                .child(
-                                    v_flex()
-                                        .min_w(px(0.))
-                                        .flex_1()
-                                        .gap_0p5()
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child(if skill.name.trim().is_empty() {
-                                                    "Untitled skill".to_string()
-                                                } else {
-                                                    skill.name.clone()
-                                                }),
-                                        )
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_sm()
-                                                .text_color(theme.muted_foreground)
-                                                .child(if skill.description.trim().is_empty() {
-                                                    "No description".to_string()
-                                                } else {
-                                                    skill.description.clone()
-                                                }),
-                                        ),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!(
-                                        "edit-skill-{}",
-                                        skill.id
-                                    )))
-                                    .small()
-                                    .label("Edit")
-                                    .disabled(busy)
-                                    .on_click({
-                                        let skill = skill.clone();
-                                        cx.listener(move |this, _event, window, cx| {
-                                            this.open_skill_editor(Some(skill.clone()), window, cx);
-                                        })
-                                    }),
-                                )
-                                .child(
-                                    Switch::new(SharedString::from(format!(
-                                        "toggle-skill-{}",
-                                        skill.id
-                                    )))
-                                    .checked(skill.enabled)
-                                    .disabled(busy)
-                                    .on_click({
-                                        let skill = skill.clone();
-                                        cx.listener(move |this, checked: &bool, _window, cx| {
-                                            this.toggle_skill(skill.clone(), *checked, cx);
-                                        })
-                                    }),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!(
-                                        "delete-skill-{}",
-                                        skill.id
-                                    )))
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::Delete)
-                                    .tooltip("Delete skill")
-                                    .disabled(busy)
-                                    .on_click({
-                                        let skill = skill.clone();
-                                        cx.listener(move |this, _event, window, cx| {
-                                            this.open_delete_skill(skill.clone(), window, cx);
-                                        })
-                                    }),
-                                )
-                        })
-                        .collect()
-                }),
-            ))
+            .child(
+                uniform_list(
+                    "settings-managed-skills-list",
+                    count,
+                    cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
+                        range
+                            .map(|index| {
+                                let skill = this.skills.configured[index].clone();
+                                let row_id =
+                                    SharedString::from(format!("managed-skill-{}", skill.id));
+                                h_flex()
+                                    .id(row_id)
+                                    .h(px(MANAGED_ROW_HEIGHT))
+                                    .px_3p5()
+                                    .py_3()
+                                    .gap_3()
+                                    .border_b_1()
+                                    .border_color(theme.border)
+                                    .child(
+                                        v_flex()
+                                            .min_w(px(0.))
+                                            .flex_1()
+                                            .gap_0p5()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .child(if skill.name.trim().is_empty() {
+                                                        "Untitled skill".to_string()
+                                                    } else {
+                                                        skill.name.clone()
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .text_sm()
+                                                    .text_color(theme.muted_foreground)
+                                                    .child(
+                                                        if skill.description.trim().is_empty() {
+                                                            "No description".to_string()
+                                                        } else {
+                                                            skill.description.clone()
+                                                        },
+                                                    ),
+                                            ),
+                                    )
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "edit-skill-{}",
+                                            skill.id
+                                        )))
+                                        .small()
+                                        .label("Edit")
+                                        .disabled(busy)
+                                        .on_click({
+                                            let skill = skill.clone();
+                                            cx.listener(move |this, _event, window, cx| {
+                                                this.open_skill_editor(
+                                                    Some(skill.clone()),
+                                                    window,
+                                                    cx,
+                                                );
+                                            })
+                                        }),
+                                    )
+                                    .child(
+                                        Switch::new(SharedString::from(format!(
+                                            "toggle-skill-{}",
+                                            skill.id
+                                        )))
+                                        .checked(skill.enabled)
+                                        .disabled(busy)
+                                        .on_click({
+                                            let skill = skill.clone();
+                                            cx.listener(move |this, checked: &bool, _window, cx| {
+                                                this.toggle_skill(skill.clone(), *checked, cx);
+                                            })
+                                        }),
+                                    )
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "delete-skill-{}",
+                                            skill.id
+                                        )))
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::Delete)
+                                        .tooltip("Delete skill")
+                                        .disabled(busy)
+                                        .on_click({
+                                            let skill = skill.clone();
+                                            cx.listener(move |this, _event, window, cx| {
+                                                this.open_delete_skill(skill.clone(), window, cx);
+                                            })
+                                        }),
+                                    )
+                            })
+                            .collect()
+                    }),
+                )
+                .w_full()
+                .h_full(),
+            )
             .into_any_element()
     }
 
@@ -716,24 +747,25 @@ impl SettingsView {
         v_flex()
             .id("settings-discovered-skills-card")
             .h(px(height))
-            .rounded_lg()
+            .rounded(px(12.))
             .border_1()
             .border_color(theme.border)
             .overflow_hidden()
-            .child(uniform_list(
-                "settings-discovered-skills-list",
-                count,
-                cx.processor(move |this, range: std::ops::Range<usize>, _window, _cx| {
-                    range
-                        .map(|index| {
-                            let skill = &this.skills.discovered[index];
-                            let source = discovered_source_label(skill.source);
-                            let detail = if skill.description.trim().is_empty() {
-                                skill.path.display().to_string()
-                            } else {
-                                skill.description.clone()
-                            };
-                            h_flex()
+            .child(
+                uniform_list(
+                    "settings-discovered-skills-list",
+                    count,
+                    cx.processor(move |this, range: std::ops::Range<usize>, _window, _cx| {
+                        range
+                            .map(|index| {
+                                let skill = &this.skills.discovered[index];
+                                let source = discovered_source_label(skill.source);
+                                let detail = if skill.description.trim().is_empty() {
+                                    skill.path.display().to_string()
+                                } else {
+                                    skill.description.clone()
+                                };
+                                h_flex()
                                 .id(SharedString::from(format!("discovered-skill-{}", skill.id)))
                                 .h(px(DISCOVERED_ROW_HEIGHT))
                                 .px_3p5()
@@ -743,6 +775,7 @@ impl SettingsView {
                                 .border_color(theme.border)
                                 .child(
                                     Icon::new(IconName::Folder)
+                                        .path("native-icons/folder-git-2.svg")
                                         .size(px(16.))
                                         .text_color(theme.muted_foreground),
                                 )
@@ -757,7 +790,7 @@ impl SettingsView {
                                                 .child(
                                                     div()
                                                         .truncate()
-                                                        .font_semibold()
+                                                        .font_weight(FontWeight::MEDIUM)
                                                         .child(skill.name.clone()),
                                                 )
                                                 .child(
@@ -786,10 +819,13 @@ impl SettingsView {
                                                 .child(detail),
                                         ),
                                 )
-                        })
-                        .collect()
-                }),
-            ))
+                            })
+                            .collect()
+                    }),
+                )
+                .w_full()
+                .h_full(),
+            )
             .into_any_element()
     }
 }
@@ -807,6 +843,7 @@ pub(crate) fn skills_modal(
     let first = state.skills.modal_first_focus.clone();
     let last = state.skills.modal_last_focus.clone();
     let scope = state.skills.modal_scope.clone();
+    let well = crate::services::appearance::well_surface(cx);
 
     let content = match modal {
         SkillsModal::Editor(draft) => {
@@ -826,55 +863,78 @@ pub(crate) fn skills_modal(
                 );
             v_flex()
                 .id("settings-skill-editor-dialog")
-                .w(px(560.))
+                .w(px(680.))
                 .max_w(gpui::relative(0.92))
-                .max_h(gpui::relative(0.9))
-                .overflow_y_scroll()
-                .gap_4()
-                .p_5()
+                .max_h(gpui::relative(0.85))
+                .px_6()
+                .py_5()
                 .rounded(px(16.))
-                .border_1()
-                .border_color(theme.border)
                 .bg(theme.popover)
                 .shadow_lg()
                 .occlude()
                 .track_focus(&scope)
                 .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| cx.stop_propagation())
                 .on_click(|_event, _window, cx| cx.stop_propagation())
-                .child(div().text_lg().font_semibold().child(title))
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
+                        .flex_shrink_0()
+                        .text_size(px(18.))
+                        .line_height(px(24.))
+                        .font_semibold()
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(px(6.))
+                        .flex_shrink_0()
+                        .text_size(px(super::SETTINGS_TEXT_PX))
+                        .text_color(theme.secondary_foreground)
                         .child("Define when the model should use this skill and the instructions it should follow."),
                 )
-                .child(field(
-                    "Name",
-                    "",
-                    Input::new(&draft.name).disabled(busy),
-                    theme.muted_foreground,
-                ))
-                .child(field(
-                    "Description",
-                    "Shown to the model so it knows when to use this skill.",
-                    Input::new(&draft.description).disabled(busy),
-                    theme.muted_foreground,
-                ))
                 .child(
                     v_flex()
-                        .gap_1p5()
-                        .child(div().text_sm().font_semibold().child("Instructions"))
+                        .mt_4()
+                        .min_h(px(0.))
+                        .overflow_y_scrollbar()
+                        .px_0p5()
                         .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child("Required. Loaded when the model invokes the skill."),
-                        )
-                        .child(
-                            div()
-                                .min_h(px(INSTRUCTIONS_MIN_HEIGHT))
-                                .max_h(px(INSTRUCTIONS_MAX_HEIGHT))
-                                .child(Input::new(&draft.instructions).disabled(busy)),
+                            v_flex()
+                                .w_full()
+                                .mb_7()
+                                .overflow_hidden()
+                                .rounded(px(12.))
+                                .bg(well)
+                                .child(settings_field(
+                                    "skills-dialog-name",
+                                    "Name",
+                                    "",
+                                    Input::new(&draft.name).w_full().disabled(busy),
+                                    true,
+                                    &theme,
+                                ))
+                                .child(settings_field(
+                                    "skills-dialog-description",
+                                    "Description",
+                                    "Shown to the model so it knows when to use this skill.",
+                                    Input::new(&draft.description).w_full().disabled(busy),
+                                    true,
+                                    &theme,
+                                ))
+                                .child(skill_dialog_vertical_field(
+                                    "skills-dialog-instructions",
+                                    "Instructions",
+                                    "Required. Loaded when the model invokes the skill.",
+                                    div()
+                                        .min_h(px(INSTRUCTIONS_MIN_HEIGHT))
+                                        .max_h(px(INSTRUCTIONS_MAX_HEIGHT))
+                                        .child(
+                                            Input::new(&draft.instructions)
+                                                .w_full()
+                                                .disabled(busy),
+                                        )
+                                        .into_any_element(),
+                                    &theme,
+                                )),
                         ),
                 )
                 .when_some(draft.error.clone(), |el, error| {
@@ -882,6 +942,8 @@ pub(crate) fn skills_modal(
                 })
                 .child(
                     h_flex()
+                        .mt_5()
+                        .flex_shrink_0()
                         .justify_end()
                         .gap_2()
                         .child(
@@ -941,13 +1003,12 @@ pub(crate) fn skills_modal(
             };
             v_flex()
                 .id("settings-skill-delete-dialog")
-                .w(px(360.))
-                .max_w(gpui::relative(0.9))
-                .gap_3()
-                .p_4()
+                .w(px(420.))
+                .max_w(gpui::relative(0.92))
+                .max_h(gpui::relative(0.85))
+                .px_6()
+                .py_5()
                 .rounded(px(16.))
-                .border_1()
-                .border_color(theme.border)
                 .bg(theme.popover)
                 .shadow_lg()
                 .occlude()
@@ -956,11 +1017,18 @@ pub(crate) fn skills_modal(
                     cx.stop_propagation()
                 })
                 .on_click(|_event, _window, cx| cx.stop_propagation())
-                .child(div().text_lg().font_semibold().child("Delete this skill?"))
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
+                        .text_size(px(18.))
+                        .line_height(px(24.))
+                        .font_semibold()
+                        .child("Delete this skill?"),
+                )
+                .child(
+                    div()
+                        .mt(px(6.))
+                        .text_size(px(super::SETTINGS_TEXT_PX))
+                        .text_color(theme.secondary_foreground)
                         .child(format!("“{name}” will be removed.")),
                 )
                 .when_some(state.skills.managed_error.clone(), |el, error| {
@@ -968,6 +1036,7 @@ pub(crate) fn skills_modal(
                 })
                 .child(
                     h_flex()
+                        .mt_5()
                         .justify_end()
                         .gap_2()
                         .child(
@@ -1054,7 +1123,6 @@ pub(crate) fn skills_modal(
         .occlude()
         .items_center()
         .justify_center()
-        .bg(gpui::black().opacity(0.18))
         .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| {
             cx.stop_propagation()
         })
@@ -1069,19 +1137,40 @@ pub(crate) fn skills_modal(
         .into_any_element()
 }
 
-fn field(
+fn skill_dialog_vertical_field(
+    id: &'static str,
     label: &'static str,
-    help: &'static str,
-    input: Input,
-    muted: gpui::Hsla,
-) -> impl IntoElement {
-    v_flex()
-        .gap_1p5()
-        .child(div().text_sm().font_semibold().child(label))
-        .when(!help.is_empty(), |el| {
-            el.child(div().text_xs().text_color(muted).child(help))
-        })
-        .child(input)
+    description: &'static str,
+    control: AnyElement,
+    theme: &gpui_component::Theme,
+) -> AnyElement {
+    div()
+        .id(id)
+        .w_full()
+        .child(
+            v_flex()
+                .w_full()
+                .gap_3()
+                .p_4()
+                .child(
+                    v_flex()
+                        .child(
+                            div()
+                                .text_size(px(super::SETTINGS_TEXT_PX))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.))
+                                .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                                .text_color(theme.secondary_foreground)
+                                .child(description),
+                        ),
+                )
+                .child(control),
+        )
+        .into_any_element()
 }
 
 fn restore_focus(focus: Option<FocusHandle>, window: &mut Window, cx: &mut Context<SettingsView>) {

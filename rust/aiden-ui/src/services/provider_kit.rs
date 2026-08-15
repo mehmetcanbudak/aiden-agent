@@ -42,7 +42,7 @@ use aiden_providers::model_capabilities::{
 use aiden_providers::provider_error_message;
 use aiden_providers::{
     anthropic::AnthropicProvider, openai_completions::OpenAICompletionsProvider, ApiFamily,
-    Provider, StreamOptions, StreamRequest,
+    Provider, StreamOptions, StreamRequest, ThinkingLevel,
 };
 
 use crate::services::computer_use::{
@@ -449,6 +449,10 @@ impl ModelSelection {
 pub struct TurnSnapshot {
     pub provider: ConfiguredProvider,
     pub selection: ModelSelection,
+    /// User-selected effort for this exact turn. `None` means thinking is off
+    /// (or unsupported) and is intentionally distinct from a UI default that
+    /// resolves to Low/Medium/High before the snapshot is built.
+    pub thinking_level: Option<ThinkingLevel>,
     pub messages: Vec<Message>,
     /// The models.dev capability catalog (loaded at boot); request-time limits
     /// consult it between discovered metadata and the builtin fallback.
@@ -756,6 +760,7 @@ pub fn build_stream_request_with_tools(
         messages,
         system_prompt,
         max_tokens: None,
+        thinking_level: snapshot.thinking_level,
         tools: tools.to_vec(),
         ..Default::default()
     }
@@ -2573,6 +2578,7 @@ mod tests {
                 provider_id: "google".into(),
                 model: "gemini-2.5-flash".into(),
             },
+            thinking_level: None,
             messages: Vec::new(),
             catalog: None,
             mcp: None,
@@ -2629,6 +2635,7 @@ mod tests {
                 provider_id: "anthropic".into(),
                 model: "claude-sonnet-5".into(),
             },
+            thinking_level: None,
             messages: Vec::new(),
             catalog: None,
             mcp: None,
@@ -2644,6 +2651,11 @@ mod tests {
         assert!(request.vision);
         assert_eq!(request.context_window, 1_000_000);
         assert_eq!(request.max_tokens_limit, 128_000);
+        let selected_effort = build_stream_request(&TurnSnapshot {
+            thinking_level: Some(ThinkingLevel::High),
+            ..snapshot.clone()
+        });
+        assert_eq!(selected_effort.thinking_level, Some(ThinkingLevel::High));
         let map = request.thinking_level_map.as_ref().unwrap();
         assert_eq!(map.get("xhigh"), Some(&Some("xhigh".to_string())));
         assert_eq!(map.get("max"), Some(&Some("max".to_string())));
@@ -2816,6 +2828,7 @@ mod tests {
                 provider_id: "anthropic".into(),
                 model: "claude-sonnet-5".into(),
             },
+            thinking_level: None,
             messages: Vec::new(),
             catalog: catalog.clone(),
             mcp: None,
@@ -3291,6 +3304,7 @@ mod tests {
                 provider_id: "anthropic".into(),
                 model: "claude-sonnet-5".into(),
             },
+            thinking_level: None,
             messages: Vec::new(),
             catalog: None,
             mcp: None,

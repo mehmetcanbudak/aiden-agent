@@ -1,12 +1,12 @@
 # GPUI UI Fidelity
 
-Status: active | Started: 2026-08-10 | Branch: `gpui-rust`
+Status: active (current v0.28.39 visual matrix complete) | Started: 2026-08-10 | Branch: `gpui-rust`
 
 ## Goal
 
 Bring the completed Rust/GPUI port to user-facing parity with the Electron/React application. Preserve the native Rust architecture while matching the Electron shell geometry, semantic appearance tokens, interaction states, focus behavior, and responsive contracts.
 
-Pixel comparison uses isolated development profiles. Source-contract, focused-test, strict-Clippy, and isolated-runtime gates remain mandatory. The reported onboarding/provider/finish parity repair now has accepted source-versus-GPUI comparisons in `design-qa.md`; Phase 6 remains active for the explicitly documented secondary-surface and unavailable-runtime lanes, not because the reported visual repair is waiting for capture.
+Pixel comparison uses isolated development profiles. Source-contract, focused-test, strict-Clippy, and isolated-runtime gates remain mandatory. The complete returning-user shell, all 12 Settings destinations, onboarding, and root-dialog visual matrix for merged Electron `v0.28.39` is accepted in `design-qa.md`. Phase 6 remains active only for the explicitly documented non-matrix runtime/accessibility lanes; the current page/component parity certification is complete.
 
 ## Phases
 
@@ -18,7 +18,7 @@ Pixel comparison uses isolated development profiles. Source-contract, focused-te
 | 3. Chat toolbar and workspace hierarchy | Complete | Single 52px per-chat toolbar; preferred-editor split control; real workspace-gated terminal; exact traffic-light/inset and compact-width behavior. |
 | 4. Environment workbench | Complete | Detached summary; responsive inline/overlay shell; hardened workspace-files backend; retained Files editor; live Review/Compare, virtualized diffs, Overview integration, and Files handoff. |
 | 5. Settings shell parity | Complete | Canonical split shell, Back/search/grouping, Skills destination, selection/focus behavior, responsive settings navigation, managed/discovered Skills UI, and end-to-end Skills invocation. |
-| 6. Secondary surfaces and visual regression | In progress | Runtime-truthful Assistant/shortcuts/About, then Model Pad, Appearance, Providers, MCP, Scheduled, Computer Use, Voice, Usage/Subagents/terminal polish, motion/reduced-motion, light/dark capture matrix, and remaining accessibility work. |
+| 6. Secondary surfaces and visual regression | Visual matrix complete; runtime follow-up active | The current `v0.28.39` main shell, onboarding, every Settings destination, and root-owned Provider/Skill/MCP/delete/reset dialogs are accepted. Explicit non-matrix runtime/accessibility limitations remain documented below. |
 
 ## Phase 1 verification
 
@@ -59,7 +59,7 @@ Pixel comparison uses isolated development profiles. Source-contract, focused-te
 2. Model Pad, full composer picker, and Appearance/native integration. **Complete.**
 3. Provider authentication/templates and native provider-specific setup. **Codex OAuth, Apple title routing, and release-pinned dynamic Pi API-key setup are complete.**
 4. MCP, Scheduled, Computer Use, and Voice parity. **MCP authority/OAuth/HTTP/SSE/Settings, real Scheduled execution/UI, attended Computer Use, and local plus credential-bound OpenAI/Gemini Voice transcription are complete.**
-5. Secondary panels, motion/reduced motion, accessibility, and the visual capture matrix.
+5. Secondary panels, motion/reduced motion, accessibility, and the visual capture matrix. **The current page/component visual matrix is complete; explicit non-visual follow-up lanes remain tracked below.**
 
 ## Phase 6A verification
 
@@ -806,6 +806,40 @@ Pixel comparison uses isolated development profiles. Source-contract, focused-te
   workspace Clippy, rustfmt, `npm test` (including native helper gates),
   TypeScript type-checking, ESLint, and diff validation.
 
+## Phase 6AQ Current v0.28.39 page/component parity certification
+
+- Audited the returning-user shell and composer, all 12 Settings routes, the
+  onboarding provider and finish states, and root-owned Provider, Skill, MCP,
+  scheduled-delete, provider-delete, skill-delete, and reset-onboarding
+  dialogs against the exact Electron `v0.28.39` source.
+- Consolidated the shared GPUI controls and source tokens: exact 40x24 switches,
+  FieldSet/Field layouts, 680px editor dialogs, 420px confirmation dialogs,
+  titlebar/sidebar geometry, route icons, card radii, source colors, typography,
+  composer sizing, Assistant-dock occlusion, and clipped scroll regions.
+- Completed the source provider inventory from Pi `0.80.10`, source MCP marks
+  and card grid, exact Model Pad lattice, real application and onboarding
+  imagery, and all route-specific empty/loading/configured/error states.
+- `design-qa.md` records exact source and current native capture paths,
+  normalized route pairs, two settings contact sheets, root-dialog evidence,
+  dimensions, hashes, profile-state boundaries, and a zero-P0/P1/P2 result.
+- Final release gates pass: 793 `aiden-ui` tests, the complete Rust workspace
+  and doc-test suite, strict all-target/all-feature workspace Clippy, rustfmt,
+  `npm test`, TypeScript type-checking, ESLint, and diff validation.
+- This certifies the current page/component visual and interaction matrix. It
+  does not erase explicitly recorded non-matrix limitations such as native
+  typeset math and depth-2/background Subagent execution; those remain honest
+  follow-up work rather than hidden exceptions to the audited screenshots.
+
 ## Visual-QA acceptance boundary
 
-The accepted provider comparison uses identical 2136×1536 light-theme source and GPUI captures placed side by side without scaling. The source finish window was captured at a different outer size, so acceptance there uses the identical 1720×1200 onboarding-card region from each renderer, again without scaling. This closes the reported onboarding repair, but it is not a claim that every transient state in the broader Phase 6 matrix has a byte-identical cross-renderer screenshot. The Electron source remains the parity oracle; `npm run dev:rs` runs the native Rust/GPUI implementation only.
+The accepted onboarding provider comparison uses identical 2136×1536
+light-theme source and GPUI captures placed side by side without scaling. The
+source finish window used a different outer size, so acceptance there compares
+the identical 1720×1200 onboarding-card region. The 12 Settings routes use exact
+1224×768 Electron references and normalized same-size GPUI panels in the final
+contact sheets. Isolated profiles intentionally produce different live provider,
+model, skill, task, and permission values; each implementation's corresponding
+state components were audited in source and tests. Chromium/GPUI subpixel glyph
+differences are renderer variance, not geometry defects. The Electron source
+remains the parity oracle; `npm run dev:rs` runs the native Rust/GPUI
+implementation only.

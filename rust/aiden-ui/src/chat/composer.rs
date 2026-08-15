@@ -17,15 +17,63 @@ use gpui::{App, IntoElement as _, Styled as _, StyledImage as _};
 use crate::chat::model_pad_picker::ModelPadRuntime;
 use crate::services::provider_kit::ConfiguredProvider;
 
-/// Canonical Electron chat-column measure (`--chat-content-max-width`).
-pub const CHAT_CONTENT_MAX_WIDTH_REMS: f32 = 52.0;
+/// Canonical Electron chat-column measure (`--chat-content-max-width: 52rem`).
+/// Electron resolves the root rem to 16px; GPUI's component rem is smaller,
+/// so keep the shared measure in physical layout pixels instead.
+pub const CHAT_CONTENT_MAX_WIDTH_PX: f32 = 52.0 * 16.0;
 /// Canonical Electron dock inset (`--aiden-dock-gutter: 4.5rem`). This stays
 /// fixed at every window width; compact controls wrap inside the remaining
 /// column instead of changing the transcript/composer alignment.
 pub const CHAT_DOCK_GUTTER_PX: f32 = 72.0;
+/// GPUI's borderless multiline input measures its first line differently from
+/// the browser textarea. These asymmetric insets produce the same visible
+/// 105 px empty composer shell as Electron's `p-2.5` source contract.
+pub const COMPOSER_TOP_PADDING_PX: f32 = 14.0;
+pub const COMPOSER_BOTTOM_PADDING_PX: f32 = 17.0;
+/// Electron's textarea keeps a 64px empty minimum, which is three GPUI text
+/// rows at the native line height.
+pub const COMPOSER_MIN_ROWS: usize = 3;
 /// The composer textarea uses eight auto-grow rows, equivalent to the
 /// Electron `max-h-48` (192px) at the app's 24px input line height.
 pub const COMPOSER_MAX_ROWS: usize = 8;
+
+pub const NEW_CHAT_COMPOSER_PLACEHOLDERS: [&str; 10] = [
+    "Let’s build…",
+    "Let’s work on…",
+    "My next idea is…",
+    "Help me create…",
+    "I want to explore…",
+    "Can you help me…",
+    "Let’s figure out…",
+    "I’m ready to make…",
+    "I want to improve…",
+    "Let’s get started with…",
+];
+pub const FOLLOW_UP_COMPOSER_PLACEHOLDER: &str = "Follow up";
+pub const UNAVAILABLE_COMPOSER_PLACEHOLDER: &str = "Choose a chat model to start";
+
+/// Exact port of `renderer/lib/composer-placeholder.ts`: unavailable-model
+/// guidance wins, active conversations use one quiet follow-up label, and a
+/// new chat gets a stable prompt derived from its id.
+pub fn composer_placeholder(
+    ready: bool,
+    readiness_message: Option<&str>,
+    has_messages: bool,
+    chat_id: &str,
+) -> String {
+    if !ready {
+        return readiness_message
+            .unwrap_or(UNAVAILABLE_COMPOSER_PLACEHOLDER)
+            .to_string();
+    }
+    if has_messages {
+        return FOLLOW_UP_COMPOSER_PLACEHOLDER.to_string();
+    }
+    let hash = chat_id.encode_utf16().fold(0_u32, |hash, unit| {
+        hash.wrapping_mul(31).wrapping_add(u32::from(unit))
+    });
+    NEW_CHAT_COMPOSER_PLACEHOLDERS[hash as usize % NEW_CHAT_COMPOSER_PLACEHOLDERS.len()].to_string()
+}
 
 /// One model choice in the picker: provider + model. The `SelectItem::Value`
 /// is a compact key so duplicate model ids across providers stay distinct.
@@ -483,8 +531,31 @@ mod tests {
     #[test]
     fn chat_measure_matches_electron_dock_contract() {
         assert_eq!(CHAT_DOCK_GUTTER_PX, 72.0);
-        assert_eq!(CHAT_CONTENT_MAX_WIDTH_REMS, 52.0);
+        assert_eq!(CHAT_CONTENT_MAX_WIDTH_PX, 832.0);
+        assert_eq!(COMPOSER_TOP_PADDING_PX, 14.0);
+        assert_eq!(COMPOSER_BOTTOM_PADDING_PX, 17.0);
+        assert_eq!(COMPOSER_MIN_ROWS, 3);
         assert_eq!(COMPOSER_MAX_ROWS, 8);
+    }
+
+    #[test]
+    fn composer_placeholder_matches_the_renderer_states() {
+        assert_eq!(NEW_CHAT_COMPOSER_PLACEHOLDERS.len(), 10);
+        let empty = composer_placeholder(true, None, false, "chat-6ea3b");
+        assert!(NEW_CHAT_COMPOSER_PLACEHOLDERS.contains(&empty.as_str()));
+        assert_eq!(empty, composer_placeholder(true, None, false, "chat-6ea3b"));
+        assert_eq!(
+            composer_placeholder(true, None, true, "chat-6ea3b"),
+            FOLLOW_UP_COMPOSER_PLACEHOLDER
+        );
+        assert_eq!(
+            composer_placeholder(false, Some("Sign in to continue"), true, "chat-6ea3b"),
+            "Sign in to continue"
+        );
+        assert_eq!(
+            composer_placeholder(false, None, false, "chat-6ea3b"),
+            UNAVAILABLE_COMPOSER_PLACEHOLDER
+        );
     }
 
     #[test]

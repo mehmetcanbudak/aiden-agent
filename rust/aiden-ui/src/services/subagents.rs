@@ -1545,6 +1545,7 @@ impl SubagentAuthority {
             let child_snapshot = TurnSnapshot {
                 provider: lease.provider.clone(),
                 selection: lease.selection.clone(),
+                thinking_level: None,
                 messages: messages.clone(),
                 catalog: None,
                 mcp: None,

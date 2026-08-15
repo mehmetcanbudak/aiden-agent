@@ -5,22 +5,21 @@
 //! `exa`), and the enable flag lives in `settings.json` under `exaEnabled`.
 //! Enabling web search adds the `web_search` tool to the assistant.
 //!
-//! All keychain/config I/O runs on the background executor. The "Test key"
-//! action verifies the *stored* key locally (presence + decryptability) — it
-//! never contacts Exa; search requests happen only when the assistant uses the
-//! tool.
+//! All keychain/config I/O runs on the background executor; search requests
+//! happen only when the assistant uses the tool.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, AppContext as _, Context, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, Styled as _, Window,
+    prelude::FluentBuilder as _, AppContext as _, Context, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, Styled as _, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    switch::Switch,
-    v_flex, ActiveTheme, Disableable as _, IconName, Sizable as _,
+    v_flex, ActiveTheme, Disableable as _,
 };
+
+use crate::controls::Switch;
 
 use super::{SettingsServices, SettingsView};
 
@@ -165,10 +164,19 @@ impl WebSearchState {
     }
 
     /// Open the key editor input.
-    fn open_key_editor(&mut self, window: &mut Window, cx: &mut Context<SettingsView>) {
+    fn open_key_editor(
+        &mut self,
+        has_key: bool,
+        window: &mut Window,
+        cx: &mut Context<SettingsView>,
+    ) {
         let editor = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Paste your Exa API key")
+                .placeholder(if has_key {
+                    "••••••••••••"
+                } else {
+                    "Paste your Exa API key"
+                })
                 .masked(true)
         });
         let subscription =
@@ -181,7 +189,6 @@ impl WebSearchState {
         self.editor_revision = self.editor_revision.wrapping_add(1);
         self.key_editor = Some(editor);
         self.notice = None;
-        cx.notify();
     }
 
     /// Save (or clear, when empty) the Exa key. Removing the key also
@@ -280,56 +287,6 @@ impl WebSearchState {
         cx.notify();
     }
 
-    /// Verify the stored key locally (presence + decryptability; no network).
-    fn test_key(&mut self, services: &SettingsServices, cx: &mut Context<SettingsView>) {
-        if self.busy {
-            return;
-        }
-        self.busy = true;
-        self.key_revision = self.key_revision.wrapping_add(1);
-        let key_revision = self.key_revision;
-        let lifecycle_revision = self.lifecycle_revision;
-        self.busy_revision = self.busy_revision.wrapping_add(1);
-        let busy_revision = self.busy_revision;
-        self.notice = None;
-        let services = services.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    services.keys.get(EXA_KEYCHAIN_ID).map(|key| key.is_some())
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                if !operation_is_current(
-                    this.web_search.key_revision,
-                    key_revision,
-                    this.web_search.lifecycle_revision,
-                    lifecycle_revision,
-                ) {
-                    if this.web_search.busy_revision == busy_revision {
-                        this.web_search.busy = false;
-                    }
-                    return;
-                }
-                this.web_search.busy = false;
-                this.web_search.notice = Some(match result {
-                    Ok(true) => {
-                        "Key is saved on this Mac and ready to use. Search requests go to Exa \
-                         only when the assistant uses the tool."
-                            .to_string()
-                    }
-                    Ok(false) => "No Exa API key is stored yet.".to_string(),
-                    Err(_) => "The stored Exa API key could not be read (legacy blob or keychain \
-                         error); re-enter it to rotate."
-                        .to_string(),
-                });
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     /// Persist the enable flag.
     fn set_enabled(
         &mut self,
@@ -388,169 +345,83 @@ impl WebSearchState {
 impl SettingsView {
     /// The Web search section: enable toggle + Exa key.
     pub(crate) fn web_search_section(
-        &self,
-        _window: &mut Window,
+        &mut self,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let theme = cx.theme();
+        let has_key = self.web_search.has_key.unwrap_or(false);
+        if self.web_search.key_editor.is_none() {
+            self.web_search.open_key_editor(has_key, window, cx);
+        }
+        let theme = cx.theme().clone();
         let state = &self.web_search;
-        let has_key = state.has_key.unwrap_or(false);
         let checking = state.has_key.is_none();
+        let editor = state
+            .key_editor
+            .as_ref()
+            .expect("web search editor")
+            .clone();
+        let draft = editor.read(cx).value().trim().to_string();
+        let well = crate::services::appearance::well_surface(cx);
+
+        let enabled_row = super::settings_field(
+            "web-search-enabled-row",
+            "Enable web search",
+            if checking {
+                "Checking the saved key…".to_string()
+            } else if has_key {
+                "Adds an Exa search tool. Search queries are sent to Exa when the assistant uses it."
+                    .to_string()
+            } else {
+                "Add an Exa API key below before enabling search.".to_string()
+            },
+            Switch::new("web-search-enabled")
+                .checked(state.enabled)
+                .disabled(checking || !has_key || state.busy)
+                .on_click(cx.listener(|this, checked, _window, cx| {
+                    this.web_search.set_enabled(*checked, &this.services, cx);
+                })),
+            true,
+            &theme,
+        );
+        let key_row = super::settings_field(
+            "web-search-key-row",
+            "Exa API key",
+            if checking {
+                "Checking the keychain…".to_string()
+            } else if has_key {
+                "A key is saved. Enter a new value to replace it.".to_string()
+            } else {
+                "Get a key at exa.ai. Stored encrypted on this device.".to_string()
+            },
+            h_flex().w_full().gap_2().child(Input::new(&editor)).child(
+                Button::new("web-search-save-key")
+                    .when(!draft.is_empty(), |button| button.primary())
+                    .when(draft.is_empty() && has_key, |button| button.danger())
+                    .label(if draft.is_empty() {
+                        "Remove"
+                    } else if has_key {
+                        "Replace"
+                    } else {
+                        "Save"
+                    })
+                    .disabled((draft.is_empty() && !has_key) || state.busy)
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.web_search.save_key(&this.services, cx);
+                    })),
+            ),
+            false,
+            &theme,
+        );
+
         v_flex()
             .id("web-search-section")
             .w_full()
-            .gap_4()
-            .child(
-                v_flex()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Web search"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .mt_0p5()
-                            .child(
-                                "When enabled, the assistant gets a web_search tool backed by \
-                                 Exa. Search queries are sent to Exa only when the assistant \
-                                 uses it.",
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(theme.border)
-                    .px_4()
-                    .py_3()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                v_flex()
-                                    .gap_0p5()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Enable web search"),
-                                    )
-                                    .child(
-                                        div().text_xs().text_color(theme.muted_foreground).child(
-                                            if checking {
-                                                "Checking the saved key…".to_string()
-                                            } else if has_key {
-                                                "Adds an Exa search tool. Search queries are \
-                                                 sent to Exa when the assistant uses it."
-                                                    .to_string()
-                                            } else {
-                                                "Add an Exa API key below before enabling search."
-                                                    .to_string()
-                                            },
-                                        ),
-                                    ),
-                            )
-                            .child(
-                                Switch::new("web-search-enabled")
-                                    .checked(state.enabled)
-                                    .label(if state.enabled { "On" } else { "Off" })
-                                    .disabled(checking || !has_key || state.busy)
-                                    .on_click(cx.listener(|this, checked, _window, cx| {
-                                        this.web_search.set_enabled(*checked, &this.services, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
-                            .child(
-                                v_flex()
-                                    .gap_0p5()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Exa API key"),
-                                    )
-                                    .child(
-                                        div().text_xs().text_color(theme.muted_foreground).child(
-                                            if checking {
-                                                "Checking the keychain…".to_string()
-                                            } else if has_key {
-                                                "A key is saved. Enter a new value to replace it."
-                                                    .to_string()
-                                            } else {
-                                                "Get a key at exa.ai. Stored encrypted on this \
-                                                 device."
-                                                    .to_string()
-                                            },
-                                        ),
-                                    ),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(
-                                        Button::new("web-search-test-key")
-                                            .small()
-                                            .ghost()
-                                            .icon(IconName::CircleCheck)
-                                            .label("Test key")
-                                            .disabled(checking || !has_key || state.busy)
-                                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                                this.web_search.test_key(&this.services, cx);
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new("web-search-edit-key")
-                                            .small()
-                                            .icon(IconName::Settings2)
-                                            .label(if has_key { "Replace" } else { "Enter key" })
-                                            .disabled(checking || state.busy)
-                                            .on_click(cx.listener(|this, _event, window, cx| {
-                                                this.web_search.open_key_editor(window, cx);
-                                            })),
-                                    ),
-                            ),
-                    )
-                    .when_some(state.key_editor.as_ref(), |el, editor| {
-                        el.child(
-                            h_flex()
-                                .w_full()
-                                .gap_2()
-                                .child(Input::new(editor).small())
-                                .child(
-                                    Button::new("web-search-save-key")
-                                        .small()
-                                        .primary()
-                                        .label("Save")
-                                        .disabled(state.busy)
-                                        .on_click(cx.listener(|this, _event, _window, cx| {
-                                            this.web_search.save_key(&this.services, cx);
-                                        })),
-                                ),
-                        )
-                    })
-                    .when_some(state.notice.clone(), |el, notice| {
-                        el.child(
-                            div()
-                                .w_full()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(notice),
-                        )
-                    }),
-            )
+            .child(super::settings_fieldset(
+                "Web Search (Exa)",
+                vec![enabled_row, key_row],
+                well,
+            ))
     }
 }
 

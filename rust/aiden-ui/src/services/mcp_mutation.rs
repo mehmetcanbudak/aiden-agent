@@ -463,6 +463,33 @@ impl McpMutationAuthority {
         Ok(())
     }
 
+    /// Disconnect every configured MCP and revoke its preset/OAuth
+    /// credentials before ConfigStore clears the portable server records.
+    /// The reset caller deliberately continues with other setup stores after
+    /// a failure, so this method attempts every server and returns the first
+    /// cleanup error only after the full pass.
+    pub async fn clear_all_for_onboarding_reset(&self) -> Result<(), McpMutationError> {
+        let _guard = self.gate.lock().await;
+        let servers = self
+            .config
+            .list_mcp_servers()
+            .map_err(McpMutationError::Config)?;
+        self.invalidate();
+        let mut first_error = None;
+        for server in servers {
+            self.oauth_gate.invalidate(&server.id);
+            self.manager.disconnect(&server.id).await;
+            if let Err(error) = self.reconcile_credentials(Some(&server), None) {
+                first_error.get_or_insert(error);
+            }
+        }
+        self.invalidate();
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
     pub async fn toggle(
         &self,
         server_id: &str,

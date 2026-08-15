@@ -12,9 +12,10 @@ use gpui_component::{
     h_flex,
     input::Input,
     spinner::Spinner,
-    switch::Switch,
     v_flex, ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, Theme,
 };
+
+use crate::controls::Switch;
 
 use crate::app::AppState;
 use crate::services::appearance::pointer_cursors_enabled;

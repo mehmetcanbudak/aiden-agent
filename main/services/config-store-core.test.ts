@@ -277,6 +277,72 @@ test("MCP servers and skills are portable; workspaces and settings are not", asy
   });
 });
 
+test("resetUserSetup clears setup and preferences while preserving skills and workspaces", async (t) => {
+  const h = await harness(t);
+  await h.store.saveProvider(provider);
+  await h.stores.portable.update((config) => {
+    config.providerIdAliases = { "legacy-lmstudio": provider.id };
+  });
+  await h.store.saveMcpServer({
+    id: "filesystem",
+    name: "Filesystem",
+    transport: "stdio",
+    command: "mcp-fs",
+    enabled: true,
+  });
+  await h.store.saveSkill({
+    id: "summarize",
+    name: "Summarize",
+    description: "Summarize a document",
+    instructions: "Keep it concise.",
+    enabled: true,
+  });
+  await h.store.saveWorkspace({
+    id: "project",
+    name: "Project",
+    permission: "ask",
+    folderPath: "/Users/example/project",
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  await h.store.setSettings({
+    profileName: "Sambit",
+    lastProviderId: provider.id,
+    lastModel: "qwen3-8b",
+    exaEnabled: true,
+  });
+
+  await h.store.resetUserSetup();
+
+  assert.deepEqual(await h.store.listProviders(), []);
+  assert.deepEqual(await h.store.listMcpServers(), []);
+  assert.deepEqual(await h.store.getSettings(), {});
+  assert.deepEqual(await h.store.listSkills(), [
+    {
+      id: "summarize",
+      name: "Summarize",
+      description: "Summarize a document",
+      instructions: "Keep it concise.",
+      enabled: true,
+    },
+  ]);
+  assert.ok((await h.store.listWorkspaces()).some((workspace) => workspace.id === "project"));
+
+  const portable = await readJson<{
+    providerIdAliases: Record<string, string>;
+    skills: Array<{ id: string }>;
+  }>(h.portableFile);
+  assert.deepEqual(portable.providerIdAliases, {});
+  assert.deepEqual(
+    portable.skills.map(({ id }) => id),
+    ["summarize"],
+  );
+  assert.deepEqual(
+    (await readJson<{ byProvider: Record<string, unknown> }>(h.cacheFile)).byProvider,
+    {},
+  );
+});
+
 test("reads and writes survive a restart of the whole store", async (t) => {
   const h = await harness(t);
   await h.store.saveProvider(provider);
@@ -349,6 +415,35 @@ test("an untouched legacy preset is still retired when seeding follows the split
     [],
     "the preset is Pi-owned now and must not be retained",
   );
+});
+
+test("released onboarding local identity migration re-homes cache and remembered provider", async (t) => {
+  const releasedId = "custom:onboarding-lmstudio";
+  const h = await harness(t, {
+    providers: [
+      {
+        ...provider,
+        id: releasedId,
+        defaultModel: "qwen3-8b",
+      },
+    ],
+    settings: { lastProviderId: releasedId },
+    seeded: true,
+  });
+
+  const [listed] = await h.store.listProviders();
+
+  assert.equal(listed.id, "custom:lmstudio");
+  assert.deepEqual(listed.legacyIds, [releasedId]);
+  assert.deepEqual(listed.models, provider.models);
+  assert.deepEqual(listed.modelMetadata, provider.modelMetadata);
+  assert.equal((await h.store.getSettings()).lastProviderId, "custom:lmstudio");
+  const cache = await readJson<{ byProvider: Record<string, unknown> }>(h.cacheFile);
+  assert.equal(cache.byProvider[releasedId], undefined);
+  assert.deepEqual(cache.byProvider["custom:lmstudio"], {
+    models: provider.models,
+    modelMetadata: provider.modelMetadata,
+  });
 });
 
 test("an edited legacy preset is retained under a reserved ID with its cache re-homed", async (t) => {
@@ -1232,7 +1327,7 @@ test("malformed portable MCP and skill entries stay byte-identical and read as e
         instructions: "",
         enabled: true,
       }),
-      /(?:Portable config is malformed|Config migration is deferred)/u,
+      /(?:Portable config is malformed|Config migration is deferred|schema is not safe)/u,
     );
     assert.equal(await fs.readFile(h.portableFile, "utf-8"), raw);
   }

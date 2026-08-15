@@ -13,6 +13,7 @@ import path from "node:path";
 
 import { registerHandlers } from "./handlers/index.js";
 import { terminalService } from "./services/terminal.js";
+import { TerminalHistoryStore } from "./services/terminal-history.js";
 import { getPreloadPath, getWindowUrl } from "./windows/window-paths.js";
 import {
   initShortcut,
@@ -28,6 +29,7 @@ import {
   foundationModelsConnection,
 } from "./services/foundation-models-connection.js";
 import { configStore } from "./services/config-store.js";
+import { skillRegistry } from "./services/skill-registry-main.js";
 import { reloadPortableConfig } from "./services/portable-config.js";
 import {
   createLastSafeSnapshotReload,
@@ -47,13 +49,17 @@ import { disposeDictation, toggleDictation } from "./services/dictation.js";
 import { isPackagedRuntime } from "./runtime-mode.js";
 import { currentRuntimeProfile } from "./runtime-profile.js";
 import { appUpdateService } from "./services/app-updater.js";
-import type { AppUpdateRestartResult } from "../renderer/shared/app-update.js";
+import type {
+  AppUpdateCheckResult,
+  AppUpdateRestartResult,
+} from "../renderer/shared/app-update.js";
 import { devLogPath, initDevLog } from "./services/dev-log.js";
 import { scheduleService } from "./services/schedule-service.js";
 import { registerAppPathOpener } from "./services/app-navigation.js";
 import { effectiveBindings, migrateLegacyKeybindings } from "../renderer/shared/keybindings.js";
 import type { NotificationChannel } from "../renderer/preload-channels.js";
 import type { AppSettings } from "./services/types.js";
+import { ONBOARDING_COMPLETE_STORAGE_KEY } from "../renderer/shared/onboarding.js";
 import { createRendererReadinessGate } from "./services/renderer-readiness-core.js";
 import { createSupersedingTaskGate } from "./services/superseding-task-core.js";
 import { subagentRuntimeRegistry } from "./services/subagents/child-agent-runtime.js";
@@ -80,6 +86,7 @@ import {
 import { reconcilePendingManagedWorktreeDeletions } from "./services/managed-worktree-deletion-recovery.js";
 import { reconcilePendingChatDeletions } from "./services/chat-deletion-reconciliation.js";
 import { ensureUserDataDir } from "./services/data-store.js";
+import { piCompactionSessionStore } from "./services/pi-compaction-session-store.js";
 import {
   reconcileExternalProviderCredentialChanges,
   reconcilePendingProviderCredentialRotation,
@@ -88,6 +95,7 @@ import {
   reconcileExternalMcpCredentialChanges,
   reconcilePendingMcpCredentialCleanup,
 } from "./services/mcp-credential-cleanup.js";
+import { resetOnboardingData } from "./services/onboarding-reset.js";
 
 const ownsSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -104,7 +112,7 @@ let closeGuard = {
   path: undefined as string | undefined,
   saving: false,
 };
-let protectedAction: "close" | "quit" | "reload" | null = null;
+let protectedAction: "close" | "quit" | "reload" | "onboarding-reset" | null = null;
 let forceAppQuit = false;
 let cleanupStarted = false;
 let lifecycleCheckInFlight = false;
@@ -148,7 +156,7 @@ const SUBAGENT_PACKAGED_SOAK_STOP_SCRIPT = `(() => {
 })()`;
 
 const SUBAGENT_PACKAGED_SOAK_SETTINGS_VISIBLE_SCRIPT =
-  'Boolean(document.querySelector(\'nav[aria-label="Settings"]\'))';
+  "Boolean(document.querySelector('nav[aria-label=\"Settings\"]'))";
 
 // The failure callout is the renderer's own generation error. This fixed,
 // test-only reader makes a failed packaged smoke actionable without exposing
@@ -317,6 +325,7 @@ async function shutdownAndQuit(settingsPrepared = false): Promise<void> {
         await subagentRunStore.flush();
         await subagentRunStore.close();
       })(),
+      terminalService.flushHistory(),
     ]);
   } catch (error) {
     logger.error("main", "Application service shutdown did not complete cleanly.", error);
@@ -494,6 +503,127 @@ async function requestApplicationQuit(window: BrowserWindow): Promise<boolean> {
   }
 }
 
+async function clearRendererOnboardingCompletion(window: BrowserWindow): Promise<boolean> {
+  try {
+    return (
+      (await window.webContents.executeJavaScript(
+        `(() => {
+          const key = ${JSON.stringify(ONBOARDING_COMPLETE_STORAGE_KEY)};
+          const wasComplete = localStorage.getItem(key) === "true";
+          localStorage.removeItem(key);
+          return wasComplete;
+        })()`,
+        true,
+      )) === true
+    );
+  } catch (error) {
+    logger.error("main", "Could not clear the onboarding completion marker.", error);
+    throw new Error("Aiden couldn’t prepare onboarding for restart. Try again.");
+  }
+}
+
+async function restoreRendererOnboardingCompletion(
+  window: BrowserWindow,
+  wasComplete: boolean,
+): Promise<void> {
+  if (!wasComplete || window.isDestroyed()) return;
+  try {
+    await window.webContents.executeJavaScript(
+      `localStorage.setItem(${JSON.stringify(ONBOARDING_COMPLETE_STORAGE_KEY)}, "true")`,
+      true,
+    );
+  } catch (error) {
+    logger.error("main", "Could not restore the onboarding completion marker.", error);
+  }
+}
+
+async function requestOnboardingReset(window: BrowserWindow): Promise<boolean> {
+  if (lifecycleCheckInFlight || shutdownStarted || installUpdateOnQuit || window.isDestroyed()) {
+    return false;
+  }
+  lifecycleCheckInFlight = true;
+  let settingsPrepared = false;
+  try {
+    if (!(await authorizeProtectedAction(window, "close"))) return false;
+    try {
+      await computerUseSettings.shutdown();
+      settingsPrepared = true;
+    } catch (error) {
+      computerUseSettings.resumeAfterCancelledShutdown();
+      logger.error(
+        "main",
+        "Computer Use state was not durable; onboarding reset was cancelled.",
+        error,
+      );
+      if (!window.isDestroyed()) {
+        dialog.showMessageBoxSync(window, {
+          type: "error",
+          title: "Aiden couldn't save Computer Use",
+          message: "Onboarding was not reset because Computer Use could not be safely turned off.",
+          detail: "Check that the app can write its settings, then try again.",
+          buttons: ["Keep Aiden Open"],
+          defaultId: 0,
+          noLink: true,
+        });
+      }
+      return false;
+    }
+
+    const onboardingWasComplete = await clearRendererOnboardingCompletion(window);
+    protectedAction = "onboarding-reset";
+    if (!(await closeRendererBeforeShutdown(window))) {
+      protectedAction = null;
+      await restoreRendererOnboardingCompletion(window, onboardingWasComplete);
+      computerUseSettings.resumeAfterCancelledShutdown();
+      return false;
+    }
+
+    try {
+      await resetOnboardingData();
+    } catch (error) {
+      computerUseSettings.resumeAfterCancelledShutdown();
+      settingsPrepared = false;
+      protectedAction = null;
+      logger.error("main", "Onboarding reset was incomplete after the renderer closed.", error);
+      try {
+        await createMainWindow();
+      } catch (recoveryError) {
+        logger.error(
+          "main",
+          "Could not reopen Aiden after an incomplete onboarding reset.",
+          recoveryError,
+        );
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showMessageBoxSync(mainWindow, {
+          type: "error",
+          title: "Aiden couldn't finish the reset",
+          message: "Some setup data could not be cleared. Retry Reset onboarding.",
+          detail: "Aiden reopened without deleting your chats, projects, schedules, or skills.",
+          buttons: ["Keep Aiden Open"],
+          defaultId: 0,
+          noLink: true,
+        });
+      } else {
+        dialog.showErrorBox(
+          "Aiden couldn't finish the reset",
+          "Some setup data could not be cleared. Reopen Aiden and retry Reset onboarding.",
+        );
+      }
+      return false;
+    }
+
+    app.relaunch();
+    await shutdownAndQuit(true);
+    return shutdownStarted;
+  } catch (error) {
+    if (settingsPrepared) computerUseSettings.resumeAfterCancelledShutdown();
+    throw error;
+  } finally {
+    lifecycleCheckInFlight = false;
+  }
+}
+
 ipcMain.handle("app:setCloseGuard", (event, value: unknown) => {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id)
     return false;
@@ -510,6 +640,12 @@ ipcMain.handle("app:setCloseGuard", (event, value: unknown) => {
   return true;
 });
 
+ipcMain.handle("app:resetOnboarding", async (event) => {
+  const window = mainWindow;
+  if (!window || window.isDestroyed() || event.sender.id !== window.webContents.id) return false;
+  return requestOnboardingReset(window);
+});
+
 ipcMain.handle("app:getUpdateState", (event) => {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
     return {
@@ -518,6 +654,13 @@ ipcMain.handle("app:getUpdateState", (event) => {
     };
   }
   return appUpdateService.snapshot();
+});
+
+ipcMain.handle("app:checkForUpdates", async (event): Promise<AppUpdateCheckResult> => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+    return { outcome: "unavailable" };
+  }
+  return appUpdateService.checkNow(false);
 });
 
 ipcMain.handle("app:restartToUpdate", (event): AppUpdateRestartResult => {
@@ -667,7 +810,12 @@ async function createMainWindow(): Promise<void> {
   });
   createdWindow.once("ready-to-show", () => createdWindow.show());
   createdWindow.on("close", (event) => {
-    if (protectedAction === "close" || protectedAction === "quit") return;
+    if (
+      protectedAction === "close" ||
+      protectedAction === "quit" ||
+      protectedAction === "onboarding-reset"
+    )
+      return;
     event.preventDefault();
     void requestWindowClose(createdWindow);
   });
@@ -692,7 +840,9 @@ async function createMainWindow(): Promise<void> {
     // retried against a fresh guard revision instead.
     const interruptedAction = protectedAction;
     protectedAction = null;
-    if (interruptedAction === "quit") {
+    if (interruptedAction === "onboarding-reset") {
+      setImmediate(() => void requestOnboardingReset(createdWindow));
+    } else if (interruptedAction === "quit") {
       forceAppQuit = false;
       shutdownStarted = false;
       setImmediate(() => void requestApplicationQuit(createdWindow));
@@ -810,8 +960,9 @@ async function settlePackagedSubagentSoak(session: SubagentPackagedSoakSession):
   if (!(await llmClient.waitForChatIdle(SUBAGENT_PACKAGED_SOAK_CHAT_ID))) {
     throw new Error("Packaged subagent soak did not settle its parent generation.");
   }
-  await waitForPackagedSubagentSoak("child settlement", () =>
-    !subagentRuntimeRegistry.hasChatChildren(SUBAGENT_PACKAGED_SOAK_CHAT_ID),
+  await waitForPackagedSubagentSoak(
+    "child settlement",
+    () => !subagentRuntimeRegistry.hasChatChildren(SUBAGENT_PACKAGED_SOAK_CHAT_ID),
   );
   await subagentHealthMetrics.flush();
   await writeSubagentPackagedSoakReceipt(
@@ -844,8 +995,9 @@ async function runPackagedSubagentSoak(session: SubagentPackagedSoakSession): Pr
   await waitForPackagedSubagentSoak("child provider response", () =>
     subagentRuntimeRegistry.hasChatProviderResponse(SUBAGENT_PACKAGED_SOAK_CHAT_ID),
   );
-  await waitForPackagedSubagentSoak("aggregate child start", async () =>
-    (await subagentHealthMetrics.snapshotForPackagedSoak()).starts === 1,
+  await waitForPackagedSubagentSoak(
+    "aggregate child start",
+    async () => (await subagentHealthMetrics.snapshotForPackagedSoak()).starts === 1,
   );
 
   const action = subagentPackagedSoakAction(session.control.mode);
@@ -1019,10 +1171,8 @@ if (!ownsSingleInstanceLock) {
     async (previous, next) => {
       await Promise.all([
         reconcileExternalProviderCredentialChanges(previous.providers, next.providers),
-        reconcileExternalMcpCredentialChanges(
-          previous.mcpServers,
-          next.mcpServers,
-          (serverId) => mcpManager.disconnect(serverId),
+        reconcileExternalMcpCredentialChanges(previous.mcpServers, next.mcpServers, (serverId) =>
+          mcpManager.disconnect(serverId),
         ),
       ]);
     },
@@ -1030,7 +1180,10 @@ if (!ownsSingleInstanceLock) {
   setPortableCredentialSnapshotListener(() => reloadAndReconcilePortableConfig.syncCurrent());
   const portableConfigWatcher = createPortableConfigWatcher(
     reloadAndReconcilePortableConfig,
-    () => ipcMain.broadcast("app:config-externally-changed", {}),
+    () => {
+      skillRegistry.invalidate();
+      ipcMain.broadcast("app:config-externally-changed", {});
+    },
     (error: unknown) =>
       logger.warn("portable-config", "Failed to re-read the portable config", error),
   );
@@ -1052,12 +1205,22 @@ if (!ownsSingleInstanceLock) {
         initDevLog(path.join(runtimeProfile.logsPath, "aiden-dev.log"));
         logger.info("dev-log", `Writing dev log to ${devLogPath() ?? "unknown"}`);
       }
+      try {
+        terminalService.installHistoryStore(await TerminalHistoryStore.create());
+      } catch (error) {
+        logger.warn(
+          "terminal",
+          "Persisted terminal history is unavailable; terminals will remain session-only.",
+          error,
+        );
+      }
       // Reconcile every persisted active child at the actual restart boundary,
       // before a renderer can read or append run history.
       await subagentRunStore.initialize();
-      await reconcilePendingChatDeletions(subagentRunStore, async (chatId) =>
-        chatStore.remove(chatId),
-      );
+      await reconcilePendingChatDeletions(subagentRunStore, async (chatId) => {
+        await piCompactionSessionStore.deleteChat(chatId);
+        await chatStore.remove(chatId);
+      });
       await reconcilePendingManagedWorktreeDeletions({
         listWorkspaces: () => configStore.listWorkspaces(),
         deletionPending: (workspace) => {

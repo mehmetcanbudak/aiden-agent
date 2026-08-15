@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FEATURED_PI_PROVIDER_IDS,
   PROVIDER_ICON_SLUGS,
+  getOnboardingMoreProviders,
   resolveProviderIconSlug,
   splitPiBuiltinProviders,
 } from "./pi-provider-display.js";
@@ -54,6 +55,24 @@ test("safely places a Pi provider added after this release under More", () => {
   );
 });
 
+test("onboarding reveals every other Pi provider in stable product order", () => {
+  const providers = [
+    { id: "custom:ollama", isBuiltin: false },
+    { id: "groq", isBuiltin: true },
+    { id: "openai-codex", isBuiltin: true },
+    { id: "google", isBuiltin: true },
+    { id: "future-pi-provider", isBuiltin: true },
+    { id: "anthropic", isBuiltin: true },
+    { id: "openai", isBuiltin: true },
+    { id: "deepseek", isBuiltin: true },
+  ];
+
+  assert.deepEqual(
+    getOnboardingMoreProviders(providers).map((provider) => provider.id),
+    ["google", "deepseek", "groq", "future-pi-provider"],
+  );
+});
+
 test("resolves provider logos without branding unknown custom or future providers", () => {
   assert.equal(resolveProviderIconSlug("openai"), "openai");
   assert.equal(resolveProviderIconSlug("together"), "together");
@@ -64,6 +83,17 @@ test("resolves provider logos without branding unknown custom or future provider
   assert.equal(resolveProviderIconSlug("radius"), undefined);
   assert.equal(resolveProviderIconSlug("custom:connection-abc"), undefined);
   assert.equal(resolveProviderIconSlug("future-pi-provider"), undefined);
+});
+
+test("numeric local-provider collision siblings retain their product logos", () => {
+  assert.equal(resolveProviderIconSlug("custom:lmstudio-2"), "lmstudio");
+  assert.equal(resolveProviderIconSlug("custom:lmstudio-10"), "lmstudio");
+  assert.equal(resolveProviderIconSlug("custom:ollama-2"), "ollama");
+  assert.equal(resolveProviderIconSlug("custom:ollama-42"), "ollama");
+
+  assert.equal(resolveProviderIconSlug("custom:lmstudio-1"), undefined);
+  assert.equal(resolveProviderIconSlug("custom:lmstudio-02"), undefined);
+  assert.equal(resolveProviderIconSlug("custom:ollama-copy"), undefined);
 });
 
 test("uses product marks for Claude and Grok models while keeping provider marks elsewhere", () => {
@@ -134,18 +164,9 @@ test("provider marks and icon wells remain theme-aware in both appearances", () 
     `${providersSettingsSource}\n${codexProviderSettingsSource}`,
     /bg-surface-subtle/u,
   );
+  assert.equal(occurrences(providersSettingsSource, "rounded-control bg-well text-secondary"), 3);
   assert.equal(
-    occurrences(
-      providersSettingsSource,
-      "rounded-control bg-well text-secondary",
-    ),
-    3,
-  );
-  assert.equal(
-    occurrences(
-      codexProviderSettingsSource,
-      "rounded-control bg-well text-secondary",
-    ),
+    occurrences(codexProviderSettingsSource, "rounded-control bg-well text-secondary"),
     1,
   );
 });

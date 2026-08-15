@@ -20,6 +20,8 @@ export const FEATURED_PI_PROVIDER_IDS = [
 
 const featuredProviderIds = new Set<string>(FEATURED_PI_PROVIDER_IDS);
 
+const ONBOARDING_PRIMARY_PROVIDER_IDS = new Set(["openai", "openai-codex", "anthropic"]);
+
 export const PROVIDER_ICON_SLUGS = [
   "amazon-bedrock",
   "ant-ling",
@@ -67,9 +69,10 @@ export type ProviderIconSlug = (typeof PROVIDER_ICON_SLUGS)[number];
 
 const providerIconSlugs = new Set<string>(PROVIDER_ICON_SLUGS);
 
+const CUSTOM_LM_STUDIO_PROVIDER_ID = /^custom:lmstudio(?:-(?:[2-9]|[1-9]\d+))?$/u;
+const CUSTOM_OLLAMA_PROVIDER_ID = /^custom:ollama(?:-(?:[2-9]|[1-9]\d+))?$/u;
+
 const PROVIDER_ICON_ALIASES: Readonly<Record<string, ProviderIconSlug>> = {
-  "custom:lmstudio": "lmstudio",
-  "custom:ollama": "ollama",
   gemini: "google",
   "lm-studio": "lmstudio",
   moonshot: "moonshotai",
@@ -88,6 +91,8 @@ export function resolveProviderIconSlug(
   if (normalizedProviderId === "xai" && normalizedModelId.includes("grok")) {
     return "grok";
   }
+  if (CUSTOM_LM_STUDIO_PROVIDER_ID.test(normalizedProviderId)) return "lmstudio";
+  if (CUSTOM_OLLAMA_PROVIDER_ID.test(normalizedProviderId)) return "ollama";
 
   const alias = PROVIDER_ICON_ALIASES[normalizedProviderId];
   if (alias) return alias;
@@ -113,4 +118,19 @@ export function splitPiBuiltinProviders<T extends { id: string }>(
     featured,
     more: providers.filter((provider) => !featuredProviderIds.has(provider.id)),
   };
+}
+
+/**
+ * Every Pi-native option that is not already represented in onboarding's
+ * compact first view. Product-curated providers stay first, while newly added
+ * Pi providers remain discoverable without a renderer update.
+ */
+export function getOnboardingMoreProviders<T extends { id: string; isBuiltin?: boolean }>(
+  providers: readonly T[],
+): T[] {
+  const additionalBuiltins = providers.filter(
+    (provider) => provider.isBuiltin === true && !ONBOARDING_PRIMARY_PROVIDER_IDS.has(provider.id),
+  );
+  const { featured, more } = splitPiBuiltinProviders(additionalBuiltins);
+  return [...featured, ...more];
 }

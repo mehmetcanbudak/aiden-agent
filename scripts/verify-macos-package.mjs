@@ -48,6 +48,10 @@ const reviewedHelperInfoPlistPath = path.join(
   "Info.plist",
 );
 const PACKAGED_MODELS_DEV_ENTRY = "resources/model-capabilities.json";
+const REQUIRED_NODE_PTY_HELPER_ENTRIES = Object.freeze([
+  "node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+  "node_modules/node-pty/prebuilds/darwin-x64/spawn-helper",
+]);
 const EXPECTED_COMPUTER_USE_HELPER_TREE = Object.freeze(
   [
     ["Contents", "directory"],
@@ -69,6 +73,7 @@ const SUBAGENT_RUN_STORE_EXECUTABLE = "aiden-subagent-run-store";
 const SUBAGENT_FILE_MUTATOR_EXECUTABLE = "aiden-subagent-file-mutator";
 const SUBAGENT_SHELL_RUNNER_EXECUTABLE = "aiden-subagent-shell-runner";
 const REQUIRED_UNIVERSAL_ARCHITECTURES = Object.freeze(["arm64", "x86_64"]);
+const ELECTRON_HELPER_SUFFIXES = Object.freeze(["", " (GPU)", " (Plugin)", " (Renderer)"]);
 
 async function run(command, args) {
   return executeFile(command, args, {
@@ -134,6 +139,55 @@ export async function verifyPackagedModelCatalogResources(appAsar) {
     throw new Error("Packaged models.dev capability snapshot is not valid JSON.");
   }
   validateModelsDevSnapshot(snapshot);
+}
+
+export function assertPackagedNodePtyHelperEntries(entries) {
+  const normalized = new Set(
+    entries.map((entry) => entry.replaceAll("\\", "/").replace(/^\//u, "")),
+  );
+  const missing = REQUIRED_NODE_PTY_HELPER_ENTRIES.filter((entry) => !normalized.has(entry));
+  if (missing.length > 0) {
+    throw new Error(
+      `Packaged app.asar is missing node-pty spawn-helper entries: ${missing.join(", ")}`,
+    );
+  }
+}
+
+export function assertNodePtySpawnHelperMode(mode, file) {
+  const permissions = mode & 0o777;
+  if (permissions !== 0o755) {
+    throw new Error(
+      `Expected node-pty spawn-helper mode 0755 for ${file}, received 0${permissions.toString(8)}`,
+    );
+  }
+}
+
+/**
+ * Verify the exact packaged runtime contract used by TerminalService: both
+ * macOS helpers are ASAR-unpacked regular files with executable permissions.
+ */
+export async function verifyPackagedNodePtyResources(appAsar) {
+  await assertRegularFile(appAsar);
+  const packageEntries = listPackage(appAsar, { isPack: false });
+  assertPackagedNodePtyHelperEntries(packageEntries);
+  for (const entryPath of REQUIRED_NODE_PTY_HELPER_ENTRIES) {
+    const entry = statFile(appAsar, entryPath, false);
+    if (
+      !entry ||
+      entry.unpacked !== true ||
+      typeof entry.size !== "number" ||
+      entry.size <= 0 ||
+      "files" in entry ||
+      "link" in entry
+    ) {
+      throw new Error(
+        `Packaged node-pty spawn-helper must be an unpacked regular file: ${entryPath}`,
+      );
+    }
+    const helper = path.join(`${appAsar}.unpacked`, entryPath);
+    const info = await assertRegularFile(helper);
+    assertNodePtySpawnHelperMode(info.mode, helper);
+  }
 }
 
 export function assertComputerUseExecutableMode(mode, file) {
@@ -321,19 +375,47 @@ export function assertMinimalComputerUseEntitlements(entitlements) {
   }
 }
 
-export function assertElectronEntitlements(entitlements) {
-  const expected = [
-    "com.apple.security.automation.apple-events",
-    "com.apple.security.cs.allow-jit",
-    "com.apple.security.cs.allow-unsigned-executable-memory",
-    "com.apple.security.cs.disable-library-validation",
-  ].sort();
-  const actual = [...entitlements.matchAll(/<key>([^<]+)<\/key>/g)].map((match) => match[1]).sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(
-      `Electron executable entitlements differ from the pinned runtime set: ${actual.join(", ")}`,
-    );
+function assertExactTrueEntitlements(entitlements, expectedKeys, description) {
+  const expected = [...expectedKeys].sort();
+  const actual = [...entitlements.matchAll(/<key>([^<]+)<\/key>/g)]
+    .map((match) => match[1])
+    .sort();
+  const enabled = [...entitlements.matchAll(/<key>([^<]+)<\/key>\s*<true\s*\/>/g)]
+    .map((match) => match[1])
+    .sort();
+  if (
+    JSON.stringify(actual) !== JSON.stringify(expected) ||
+    JSON.stringify(enabled) !== JSON.stringify(expected)
+  ) {
+    throw new Error(`${description}: ${actual.join(", ")}`);
   }
+}
+
+export function assertElectronEntitlements(entitlements) {
+  assertExactTrueEntitlements(
+    entitlements,
+    [
+      "com.apple.security.automation.apple-events",
+      "com.apple.security.cs.allow-jit",
+      "com.apple.security.cs.allow-unsigned-executable-memory",
+      "com.apple.security.cs.disable-library-validation",
+      "com.apple.security.device.audio-input",
+    ],
+    "Electron executable entitlements differ from the pinned runtime set",
+  );
+}
+
+export function assertElectronHelperEntitlements(entitlements) {
+  assertExactTrueEntitlements(
+    entitlements,
+    [
+      "com.apple.security.cs.allow-jit",
+      "com.apple.security.cs.allow-unsigned-executable-memory",
+      "com.apple.security.cs.disable-library-validation",
+      "com.apple.security.device.audio-input",
+    ],
+    "Electron helper entitlements differ from the pinned inherited set",
+  );
 }
 
 async function readInfoPlistValue(infoPlist, key) {
@@ -419,6 +501,17 @@ export async function verifyMacPackage(appPath) {
     "Helpers",
     SUBAGENT_SHELL_RUNNER_EXECUTABLE,
   );
+  const electronHelpers = ELECTRON_HELPER_SUFFIXES.map((suffix) =>
+    path.join(
+      paths.app,
+      "Contents",
+      "Frameworks",
+      `Aiden Agent Helper${suffix}.app`,
+      "Contents",
+      "MacOS",
+      `Aiden Agent Helper${suffix}`,
+    ),
+  );
   for (const file of [
     paths.broker,
     paths.driver,
@@ -428,6 +521,7 @@ export async function verifyMacPackage(appPath) {
     paths.outerProvenance,
     paths.outerLicenseNotice,
     paths.electronExecutable,
+    ...electronHelpers,
     worktreeRemover,
     subagentRunStore,
     subagentFileMutator,
@@ -437,6 +531,7 @@ export async function verifyMacPackage(appPath) {
     await assertRegularFile(file);
   }
   await verifyPackagedModelCatalogResources(appAsar);
+  await verifyPackagedNodePtyResources(appAsar);
   await verifyExactComputerUseHelperTree(paths.helperApp);
   assertComputerUseExecutableMode((await lstat(paths.broker)).mode, paths.broker);
   assertComputerUseExecutableMode((await lstat(paths.driver)).mode, paths.driver);
@@ -505,6 +600,7 @@ export async function verifyMacPackage(appPath) {
         paths.broker,
         paths.driver,
         paths.electronExecutable,
+        ...electronHelpers,
         worktreeRemover,
         subagentRunStore,
         subagentFileMutator,
@@ -544,6 +640,9 @@ export async function verifyMacPackage(appPath) {
   assertMinimalComputerUseEntitlements(await readEntitlements(subagentRunStore));
   assertMinimalComputerUseEntitlements(await readEntitlements(subagentFileMutator));
   assertElectronEntitlements(await readEntitlements(paths.electronExecutable));
+  for (const electronHelper of electronHelpers) {
+    assertElectronHelperEntitlements(await readEntitlements(electronHelper));
+  }
   await verifyAidenFuses(paths.app);
   console.log(`Verified hardened macOS package: ${paths.app}`);
 }

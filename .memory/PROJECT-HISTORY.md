@@ -1,3 +1,33 @@
+### 2026-08-15 — Main sync and GPUI visual-parity repair
+
+- Merged current `origin/main` (`c8053ba`) into `gpui-rust` as `c437938`,
+  resolving plan and TypeScript/runtime conflicts in favor of Main's current
+  contracts while preserving the native port.
+- Replaced the sparse first-run GPUI layout with the current Electron 860×600
+  onboarding shell: branded 220px rail, labeled step progress, semantic theme
+  before the first window, real provider logos, source Lucide control icons,
+  current provider order/density, a scrolling body with fixed footer, and all
+  22 shipped feature-tour images. The provider full view and the identical
+  finish-card region were recaptured beside the current Electron source after
+  the compact-card/scroll correction; `design-qa.md` records the exact paths,
+  dimensions, hashes, and accepted P0/P1/P2 result.
+- Repaired the reported chat regressions: long local model ids now use a
+  bounded short-label trigger, an empty Model Pad renders the 9×9 lattice and
+  Customize affordance, and persisted reasoning begins collapsed behind an
+  independently keyed disclosure with a bounded scroll body.
+- Main's version bump also exposed and fixed a stale GPUI About assertion.
+  Live Settings reproduction then exposed a Tokio-reactor panic in the native
+  Foundation Models status poll. Settings boot and the same latent automatic
+  title path now dispatch through the Tokio bridge and have focused regression
+  coverage; the exact Settings sequence remained alive for ten seconds and
+  showed Apple Foundation Models as Ready.
+- Final verification passes the complete Rust workspace, strict all-target/
+  all-feature workspace Clippy, rustfmt, `npm test` including both native helper
+  gates, TypeScript type-checking, ESLint, and diff validation. A live
+  `AIDEN_DEV=1` smoke opens the GPUI main window at 1000×700. The GPUI binary is
+  Rust/GPUI-only at runtime; the merged Electron implementation remains in the
+  tree as the upstream behavior and visual reference.
+
 ### 2026-08-11 — Transactional GPUI chat and persistent Assistant dock
 
 - Unified button, Enter, and Command-Enter submission behind a durable

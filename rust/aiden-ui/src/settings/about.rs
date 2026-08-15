@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn product_version_comes_from_root_package_metadata() {
-        assert_eq!(product_version(), "0.27.0");
+        assert_eq!(product_version(), "0.28.0");
         assert_eq!(
             product_version_from(r#"{"version":"1.2.3"}"#).as_deref(),
             Some("1.2.3")

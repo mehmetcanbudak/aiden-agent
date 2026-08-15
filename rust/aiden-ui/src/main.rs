@@ -149,6 +149,18 @@ fn start_onboarding_accessibility_monitor(
         high_contrast: effective.high_contrast,
         reduced_motion: effective.reduce_motion,
     });
+    // The onboarding window is the first GPUI surface on a fresh profile, so
+    // it must receive the same semantic theme as the returning-user window
+    // before its first frame. Without this, gpui-component's pale default
+    // accent makes the hero icon and selected controls disappear on white.
+    let scheme = services::appearance::resolve_scheme(appearance.mode, cx.window_appearance());
+    services::appearance::apply_appearance(
+        cx,
+        appearance,
+        scheme,
+        effective.high_contrast,
+        effective.reduce_motion,
+    );
     let monitor = cx.new(|_| OnboardingAccessibilityMonitor {
         native,
         active: true,
@@ -231,8 +243,39 @@ fn activate_onboarding_window(
         .is_ok()
 }
 
+fn forced_onboarding_step(dev: bool, value: Option<&str>) -> Option<usize> {
+    if !dev {
+        return None;
+    }
+    match value {
+        Some("1") | Some("true") | Some("TRUE") | Some("welcome") => Some(0),
+        Some("provider") => Some(1),
+        Some("finish") | Some("tour") => Some(2),
+        _ => None,
+    }
+}
+
+/// Dev-only visual-QA override. It lets source and native captures use the
+/// same semantic theme without mutating the user's persisted appearance or
+/// the global macOS setting.
+fn forced_appearance_mode(dev: bool, value: Option<&str>) -> Option<aiden_core::appearance::Mode> {
+    if !dev {
+        return None;
+    }
+    match value {
+        Some("light") | Some("LIGHT") => Some(aiden_core::appearance::Mode::Light),
+        Some("dark") | Some("DARK") => Some(aiden_core::appearance::Mode::Dark),
+        _ => None,
+    }
+}
+
 fn main() {
     let dev = aiden_data::is_dev_mode();
+    let forced_onboarding_step =
+        forced_onboarding_step(dev, std::env::var("AIDEN_FORCE_ONBOARDING").ok().as_deref());
+    let force_onboarding = forced_onboarding_step.is_some();
+    let forced_appearance_mode =
+        forced_appearance_mode(dev, std::env::var("AIDEN_FORCE_APPEARANCE").ok().as_deref());
 
     // GPUI runs inside ObjC callbacks (NSApplication run loop) where Rust
     // panics cannot unwind. Install a hook that logs the panic + backtrace to
@@ -272,6 +315,12 @@ fn main() {
             aiden_data::machine_local_data_dir().display()
         );
         eprintln!();
+        if force_onboarding {
+            eprintln!(
+                "  🧪 Onboarding forced at step {} for this dev launch",
+                forced_onboarding_step.unwrap_or_default() + 1
+            );
+        }
     }
 
     if let Err(err) = tracing_subscriber::fmt()
@@ -370,16 +419,21 @@ fn main() {
         // the main window. The marker lives in `settings.json` under the
         // exact TS key (`aiden:onboarding:v1:complete`).
         let settings = stores.config.get_settings().unwrap_or_default();
-        if onboarding::should_show_onboarding(&settings) {
-            let onboarding_appearance = appearance_from_settings(&settings);
+        if force_onboarding || onboarding::should_show_onboarding(&settings) {
+            let mut onboarding_appearance = appearance_from_settings(&settings);
+            if let Some(mode) = forced_appearance_mode {
+                onboarding_appearance.mode = mode;
+            }
             let onboarding_accessibility =
                 start_onboarding_accessibility_monitor(&onboarding_appearance, cx);
             set_main_window_state(shortcut_runtime::MainWindowLifecycle::Onboarding, cx);
             let close_handle = process_onboarding.clone();
             let stores_for_complete = stores.clone();
             let complete_accessibility = onboarding_accessibility.clone();
-            let services = onboarding::OnboardingServices::new(stores.clone()).with_on_complete(
-                Box::new(move |pi_provider_setup, cx: &mut App| {
+            let services = onboarding::OnboardingServices::new(stores.clone())
+                .with_force_show(force_onboarding)
+                .with_initial_step(forced_onboarding_step)
+                .with_on_complete(Box::new(move |pi_provider_setup, cx: &mut App| {
                     complete_accessibility.update(cx, |monitor, _| monitor.active = false);
                     if let Some(handle) = close_handle.borrow().as_ref() {
                         let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
@@ -393,8 +447,7 @@ fn main() {
                     ) {
                         eprintln!("failed to open the Aiden window: {error}");
                     }
-                }),
-            );
+                }));
             match onboarding::open_onboarding_window(cx, services) {
                 Ok(handle) => *process_onboarding.borrow_mut() = Some(handle),
                 Err(error) => {
@@ -602,7 +655,7 @@ fn open_main_window_with_pi_setup(
 
 #[cfg(test)]
 mod lifecycle_tests {
-    use super::{reopen_target, ReopenTarget};
+    use super::{forced_appearance_mode, forced_onboarding_step, reopen_target, ReopenTarget};
     use crate::shortcut_runtime::MainWindowLifecycle;
 
     #[test]
@@ -619,6 +672,31 @@ mod lifecycle_tests {
             reopen_target(MainWindowLifecycle::Ready),
             ReopenTarget::Main
         );
+    }
+
+    #[test]
+    fn onboarding_can_only_be_forced_in_dev_mode() {
+        assert_eq!(forced_onboarding_step(true, Some("1")), Some(0));
+        assert_eq!(forced_onboarding_step(true, Some("provider")), Some(1));
+        assert_eq!(forced_onboarding_step(true, Some("tour")), Some(2));
+        assert_eq!(forced_onboarding_step(false, Some("finish")), None);
+        assert_eq!(forced_onboarding_step(true, Some("0")), None);
+        assert_eq!(forced_onboarding_step(true, None), None);
+    }
+
+    #[test]
+    fn visual_qa_appearance_can_only_be_forced_in_dev_mode() {
+        assert_eq!(
+            forced_appearance_mode(true, Some("light")),
+            Some(aiden_core::appearance::Mode::Light)
+        );
+        assert_eq!(
+            forced_appearance_mode(true, Some("DARK")),
+            Some(aiden_core::appearance::Mode::Dark)
+        );
+        assert_eq!(forced_appearance_mode(false, Some("light")), None);
+        assert_eq!(forced_appearance_mode(true, Some("system")), None);
+        assert_eq!(forced_appearance_mode(true, None), None);
     }
 
     #[test]
@@ -643,6 +721,39 @@ mod lifecycle_tests {
         assert!(
             prepared < opened,
             "restore must precede the first window frame"
+        );
+    }
+
+    #[test]
+    fn onboarding_applies_semantic_appearance_before_opening_its_window() {
+        let source = include_str!("main.rs");
+        let monitor = source
+            .find("fn start_onboarding_accessibility_monitor")
+            .expect("onboarding monitor exists");
+        let applied = source[monitor..]
+            .find("services::appearance::apply_appearance(")
+            .map(|offset| monitor + offset)
+            .expect("onboarding applies its theme");
+        let monitor_end = source[applied..]
+            .find("fn set_main_window_state")
+            .map(|offset| applied + offset)
+            .expect("onboarding monitor ends before lifecycle helpers");
+        assert!(applied < monitor_end);
+
+        let onboarding_branch = source
+            .find("if force_onboarding || onboarding::should_show_onboarding")
+            .expect("first-run branch exists");
+        let started = source[onboarding_branch..]
+            .find("start_onboarding_accessibility_monitor")
+            .map(|offset| onboarding_branch + offset)
+            .expect("onboarding prepares accessibility and theme");
+        let opened = source[onboarding_branch..]
+            .find("onboarding::open_onboarding_window")
+            .map(|offset| onboarding_branch + offset)
+            .expect("onboarding opens a window");
+        assert!(
+            started < opened,
+            "theme must be installed before first paint"
         );
     }
 }

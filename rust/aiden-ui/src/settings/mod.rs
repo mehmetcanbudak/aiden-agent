@@ -29,6 +29,7 @@ use gpui::{
     StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::{v_flex, ActiveTheme};
+use gpui_tokio_bridge::Tokio;
 
 mod about;
 mod appearance;
@@ -211,7 +212,7 @@ impl SettingsView {
         this
     }
 
-    /// Load every section's durable state on the background executor. Also
+    /// Load every section's durable state on the Tokio bridge. Also
     /// loads the models.dev capability catalog and enriches each built-in
     /// provider row with its catalog models (shown with a "discovered" badge
     /// in the Providers section). A missing catalog file (dev checkouts) just
@@ -222,83 +223,93 @@ impl SettingsView {
         }
         self.booted = true;
         let services = self.services.clone();
-        cx.spawn(async move |this, cx| {
-            let snapshot = cx
-                .background_spawn(async move {
-                    let capabilities = crate::services::provider_kit::load_capabilities();
-                    let catalog_status = model_data::catalog_status_of(capabilities.as_deref());
-                    let mut providers = services
-                        .config
-                        .list_providers()
-                        .map(|list| {
-                            list.iter()
-                                .map(providers::ProviderRow::from)
-                                .map(|row| enrich_provider_row(row, capabilities.as_deref()))
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    providers.extend(
-                        services
-                            .pi_providers
-                            .list()
-                            .iter()
-                            .map(providers::ProviderRow::from),
-                    );
-                    let voice_error = services.voice.reconcile_boot().err().map(|_| {
-                        "Voice settings could not be migrated; dictation remains unavailable."
-                            .to_string()
-                    });
-                    let (settings, settings_error) = match services.config.get_settings() {
-                        Ok(settings) => (settings, None),
-                        Err(_) => (serde_json::Map::new(), Some(())),
-                    };
-                    let model_pad = services.model_pad.load();
-                    let codex_status = services.codex_auth.account_status();
-                    let foundation_status = services.foundation_models.status(false).await;
-                    let schedules = services
-                        .schedules
-                        .list()
-                        .map(|list| {
-                            list.iter()
-                                .map(scheduled::ScheduleRow::from)
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    let mcp_servers = services
-                        .config
-                        .list_mcp_servers()
-                        .unwrap_or_default()
-                        .iter()
-                        .map(mcp::McpServerRow::from)
-                        .collect::<Vec<_>>();
-                    let scheduled_mcp_servers =
-                        services.config.list_mcp_servers().unwrap_or_default();
-                    let workspaces = services
-                        .config
-                        .list_workspaces()
-                        .map(|list| {
-                            list.into_iter()
-                                .map(|workspace| (workspace.id, workspace.name))
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    (
-                        providers,
-                        settings,
-                        settings_error,
-                        voice_error,
-                        schedules,
-                        mcp_servers,
-                        workspaces,
-                        capabilities,
-                        catalog_status,
-                        model_pad,
-                        codex_status,
-                        foundation_status,
-                        scheduled_mcp_servers,
-                    )
+        // FoundationModelsConnection ultimately owns a tokio::process child.
+        // GPUI's generic background executor has no Tokio reactor, so the
+        // complete snapshot must stay on the bridge instead of polling the
+        // native helper future from `cx.background_spawn`.
+        let snapshot_task = Tokio::spawn(cx, async move {
+            let capabilities = crate::services::provider_kit::load_capabilities();
+            let catalog_status = model_data::catalog_status_of(capabilities.as_deref());
+            let mut providers = services
+                .config
+                .list_providers()
+                .map(|list| {
+                    list.iter()
+                        .map(providers::ProviderRow::from)
+                        .map(|row| enrich_provider_row(row, capabilities.as_deref()))
+                        .collect::<Vec<_>>()
                 })
-                .await;
+                .unwrap_or_default();
+            providers.extend(
+                services
+                    .pi_providers
+                    .list()
+                    .iter()
+                    .map(providers::ProviderRow::from),
+            );
+            let voice_error = services.voice.reconcile_boot().err().map(|_| {
+                "Voice settings could not be migrated; dictation remains unavailable.".to_string()
+            });
+            let (settings, settings_error) = match services.config.get_settings() {
+                Ok(settings) => (settings, None),
+                Err(_) => (serde_json::Map::new(), Some(())),
+            };
+            let model_pad = services.model_pad.load();
+            let codex_status = services.codex_auth.account_status();
+            let foundation_status = services.foundation_models.status(false).await;
+            let schedules = services
+                .schedules
+                .list()
+                .map(|list| {
+                    list.iter()
+                        .map(scheduled::ScheduleRow::from)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let mcp_servers = services
+                .config
+                .list_mcp_servers()
+                .unwrap_or_default()
+                .iter()
+                .map(mcp::McpServerRow::from)
+                .collect::<Vec<_>>();
+            let scheduled_mcp_servers = services.config.list_mcp_servers().unwrap_or_default();
+            let workspaces = services
+                .config
+                .list_workspaces()
+                .map(|list| {
+                    list.into_iter()
+                        .map(|workspace| (workspace.id, workspace.name))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (
+                providers,
+                settings,
+                settings_error,
+                voice_error,
+                schedules,
+                mcp_servers,
+                workspaces,
+                capabilities,
+                catalog_status,
+                model_pad,
+                codex_status,
+                foundation_status,
+                scheduled_mcp_servers,
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(snapshot) = snapshot_task.await else {
+                this.update(cx, |this, cx| {
+                    this.booted = false;
+                    this.error =
+                        Some("Settings could not be loaded. Try opening Settings again.".into());
+                    cx.notify();
+                })
+                .ok();
+                return;
+            };
             this.update(cx, |this, cx| {
                 let (
                     providers,
@@ -574,5 +585,17 @@ mod tests {
     #[test]
     fn content_measure_matches_the_electron_shell() {
         assert_eq!(SETTINGS_CONTENT_MAX_WIDTH_PX, 672.0);
+    }
+
+    #[test]
+    fn settings_boot_keeps_the_foundation_helper_on_the_tokio_bridge() {
+        let source = include_str!("mod.rs");
+        let boot = source
+            .split("pub fn boot")
+            .nth(1)
+            .and_then(|source| source.split("pub(crate) fn select_section").next())
+            .expect("settings boot source");
+        assert!(boot.contains("let snapshot_task = Tokio::spawn(cx"));
+        assert!(!boot.contains("let snapshot_task = cx.background_spawn"));
     }
 }

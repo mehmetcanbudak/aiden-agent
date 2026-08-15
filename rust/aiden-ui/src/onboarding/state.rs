@@ -1,29 +1,21 @@
 //! Pure onboarding state machine (port of `renderer/components/onboarding-flow.tsx`
 //! + `onboarding-flow.test.tsx`).
 //!
-//! The Electron flow was three steps (`profile → provider → tour`); this port
-//! keeps every behavior the TS version had and widens the tour step into the
-//! four final steps the port plan calls for. The mapping:
+//! The Electron flow is three steps (`profile → provider → tour`). The
+//! native flow intentionally keeps that exact information architecture:
 //!
 //! | this port | TS original | notes |
 //! |---|---|---|
 //! | `Welcome` | `profile` | name entry, persisted under `profileName` |
-//! | `Provider` | `provider` | the seven real Aiden providers; key → keychain |
-//! | `Model` | — (implicit) | pick from the just-saved provider / catalog; persists `modelSelection` |
-//! | `Appearance` | — | preset + mode, live preview via `services::appearance` |
-//! | `Permissions` | — | microphone/dictation + computer-use explainer (copy ported from the TS) |
+//! | `Provider` | `provider` | real Aiden providers; key → keychain, default model selected implicitly |
 //! | `Finish` | `tour` | "Aiden is ready" feature bento; writes the first-run marker |
 //!
 //! Preserved TS contracts (unit-tested below): `shouldShowOnboarding` reads the
 //! marker `aiden:onboarding:v1:complete`, `make_onboarding_provider` emits the
-//! real builtin provider IDs and current model lists (from the TS config
-//! services, not the legacy `custom:onboarding-*` placeholders), and the
+//! exact current-Main onboarding provider IDs and model lists, and the
 //! provider-step validation copy matches the TS toasts.
 
-use aiden_core::appearance::{
-    create_default_appearance_config, get_preset_variant, AppearanceConfig, Mode, PresetId,
-    ReduceMotion, Scheme,
-};
+use aiden_core::appearance::ReduceMotion;
 use aiden_data::portable_config::{ProviderDeployment, ProviderKind};
 
 /// The first-run-complete marker. The TS stored it in `localStorage` under
@@ -39,117 +31,125 @@ pub const MODEL_SELECTION_SETTINGS_KEY: &str = "modelSelection";
 /// TS `MAX_PROFILE_NAME_LENGTH` (profile-core) and the Input `maxLength`.
 pub const MAX_PROFILE_NAME_LENGTH: usize = 80;
 
-/// The six onboarding steps, in order.
+/// The three current-Main onboarding steps, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Welcome,
     Provider,
-    Model,
-    Appearance,
-    Permissions,
     Finish,
 }
 
 impl Step {
-    pub const ALL: &'static [Step] = &[
-        Step::Welcome,
-        Step::Provider,
-        Step::Model,
-        Step::Appearance,
-        Step::Permissions,
-        Step::Finish,
-    ];
+    pub const ALL: &'static [Step] = &[Step::Welcome, Step::Provider, Step::Finish];
 
     #[allow(dead_code)] // renderer-contract helper; the view tracks the machine step directly
     pub fn index(self) -> usize {
         match self {
             Step::Welcome => 0,
             Step::Provider => 1,
-            Step::Model => 2,
-            Step::Appearance => 3,
-            Step::Permissions => 4,
-            Step::Finish => 5,
+            Step::Finish => 2,
         }
     }
 
     pub fn from_index(index: usize) -> Step {
         Self::ALL.get(index).copied().unwrap_or(Step::Finish)
     }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Step::Welcome => "Your profile",
+            Step::Provider => "Model provider",
+            Step::Finish => "Ready to go",
+        }
+    }
 }
 
-/// The seven provider choices — the real Aiden builtin providers plus the two
-/// local keyless servers. The legacy TS `openai-signin` OAuth path and the
-/// `tailscale` choice are dropped (the OAuth window is out of scope in this
-/// port and Tailscale was never a builtin provider).
+/// The six compact provider choices from current Main. Pi's remaining release-
+/// pinned providers are rendered separately behind "Choose from more" so the
+/// first view, copy, and ordering stay identical to the Electron flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderChoice {
+    Openai,
     ChatGpt,
     Anthropic,
-    Google,
-    Openai,
-    DeepSeek,
-    Moonshot,
     LmStudio,
     Ollama,
+    Tailscale,
+    // Kept as hidden factory variants for compatibility with existing
+    // provider-state tests and stored drafts; these are surfaced through the
+    // release-pinned Pi catalog rather than the compact primary grid.
+    Google,
+    DeepSeek,
+    Moonshot,
 }
 
 impl ProviderChoice {
     pub const ALL: &'static [ProviderChoice] = &[
+        ProviderChoice::Openai,
         ProviderChoice::ChatGpt,
         ProviderChoice::Anthropic,
-        ProviderChoice::Google,
-        ProviderChoice::Openai,
-        ProviderChoice::DeepSeek,
-        ProviderChoice::Moonshot,
         ProviderChoice::LmStudio,
         ProviderChoice::Ollama,
+        ProviderChoice::Tailscale,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            ProviderChoice::ChatGpt => "ChatGPT / Codex",
-            ProviderChoice::Anthropic => "Anthropic (Claude)",
-            ProviderChoice::Google => "Google Gemini",
-            ProviderChoice::Openai => "OpenAI",
-            ProviderChoice::DeepSeek => "DeepSeek",
-            ProviderChoice::Moonshot => "Moonshot (Kimi)",
+            ProviderChoice::Openai => "OpenAI API key",
+            ProviderChoice::ChatGpt => "ChatGPT sign in",
+            ProviderChoice::Anthropic => "Anthropic API key",
             ProviderChoice::LmStudio => "LM Studio",
             ProviderChoice::Ollama => "Ollama",
+            ProviderChoice::Tailscale => "Tailscale custom model",
+            ProviderChoice::Google => "Google Gemini",
+            ProviderChoice::DeepSeek => "DeepSeek",
+            ProviderChoice::Moonshot => "Moonshot (Kimi)",
+        }
+    }
+
+    pub const fn icon_provider_id(self) -> &'static str {
+        match self {
+            ProviderChoice::Openai => "openai",
+            ProviderChoice::ChatGpt => "openai-codex",
+            ProviderChoice::Anthropic => "anthropic",
+            ProviderChoice::LmStudio => "custom:lmstudio",
+            ProviderChoice::Ollama => "custom:ollama",
+            ProviderChoice::Tailscale => "",
+            ProviderChoice::Google => "google",
+            ProviderChoice::DeepSeek => "deepseek",
+            ProviderChoice::Moonshot => "moonshotai",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            ProviderChoice::ChatGpt => "Use your ChatGPT Plus or Pro account with Codex models.",
-            ProviderChoice::Anthropic => {
-                "Bring Claude with your Anthropic API key and provider-hosted models."
-            }
+            ProviderChoice::Openai => "Connect with your own API key.",
+            ProviderChoice::ChatGpt => "Connect through browser sign-in.",
+            ProviderChoice::Anthropic => "Connect with your Anthropic API key.",
+            ProviderChoice::LmStudio => "Use models running in LM Studio.",
+            ProviderChoice::Ollama => "Use models running in Ollama.",
+            ProviderChoice::Tailscale => "Connect to a private model on your tailnet.",
             ProviderChoice::Google => "Use Gemini with your Google AI Studio or Gemini API key.",
-            ProviderChoice::Openai => "Use OpenAI's hosted models with your own API key.",
             ProviderChoice::DeepSeek => "Use DeepSeek's hosted models with your own API key.",
             ProviderChoice::Moonshot => {
                 "Use Moonshot AI's hosted Kimi models with your own API key."
-            }
-            ProviderChoice::LmStudio => {
-                "Use models served locally from LM Studio's OpenAI-compatible server."
-            }
-            ProviderChoice::Ollama => {
-                "Use local Ollama models through Aiden's OpenAI-compatible adapter."
             }
         }
     }
 
     pub fn footnote(self) -> &'static str {
         match self {
+            ProviderChoice::Openai => "The key stays on this Mac.",
             ProviderChoice::ChatGpt => "OAuth tokens stay encrypted in this Mac's Keychain.",
             ProviderChoice::Anthropic | ProviderChoice::Google => {
                 "The key stays on this Mac and can be rotated later in Settings."
             }
-            ProviderChoice::Openai | ProviderChoice::DeepSeek | ProviderChoice::Moonshot => {
+            ProviderChoice::DeepSeek | ProviderChoice::Moonshot => {
                 "Key is saved through Aiden's local secret storage."
             }
             ProviderChoice::LmStudio => "Default URL: http://127.0.0.1:1234/v1",
             ProviderChoice::Ollama => "Default URL: http://127.0.0.1:11434/v1",
+            ProviderChoice::Tailscale => "Connects only to the URL you provide.",
         }
     }
 
@@ -158,9 +158,9 @@ impl ProviderChoice {
     pub fn requires_key(self) -> bool {
         matches!(
             self,
-            ProviderChoice::Anthropic
+            ProviderChoice::Openai
+                | ProviderChoice::Anthropic
                 | ProviderChoice::Google
-                | ProviderChoice::Openai
                 | ProviderChoice::DeepSeek
                 | ProviderChoice::Moonshot
         )
@@ -170,7 +170,7 @@ impl ProviderChoice {
     /// point at a gateway/proxy); local servers always use their fixed default
     /// URL.
     pub fn shows_base_url(self) -> bool {
-        self.requires_key()
+        self.requires_key() || matches!(self, ProviderChoice::Tailscale)
     }
 
     #[allow(dead_code)] // renderer-contract helper; the view uses the machine defaults
@@ -179,6 +179,7 @@ impl ProviderChoice {
             ProviderChoice::ChatGpt => "Managed by secure ChatGPT sign-in",
             ProviderChoice::LmStudio => "http://127.0.0.1:1234/v1",
             ProviderChoice::Ollama => "http://127.0.0.1:11434/v1",
+            ProviderChoice::Tailscale => "https://model.tailnet.ts.net/v1",
             _ => "Default provider URL",
         }
     }
@@ -209,25 +210,33 @@ pub struct PendingProviderSave {
     pub api_key: Option<String>,
 }
 
-/// Build the provider record for a choice (TS `makeOnboardingProvider`, with
-/// the legacy `custom:onboarding-*` IDs replaced by the real builtin provider
-/// IDs and current model lists from the TS config services).
+/// Build the provider record for a compact choice. The three hosted/private
+/// records intentionally preserve current Main's exact onboarding IDs,
+/// endpoints, model defaults, and deployment flags.
 pub fn make_onboarding_provider(
     choice: ProviderChoice,
     base_url: &str,
 ) -> Option<OnboardingProvider> {
     let (id, kind, label, models, default_model, needs_key, deployment) = match choice {
         ProviderChoice::ChatGpt => return None,
+        ProviderChoice::Openai => (
+            "custom:onboarding-openai".to_string(),
+            ProviderKind::Openai,
+            "OpenAI".to_string(),
+            vec!["gpt-4.1".to_string(), "gpt-4.1-mini".to_string()],
+            Some("gpt-4.1-mini".to_string()),
+            true,
+            ProviderDeployment::Hosted,
+        ),
         ProviderChoice::Anthropic => (
-            "anthropic".to_string(),
+            "custom:onboarding-anthropic".to_string(),
             ProviderKind::Anthropic,
-            "Anthropic (Claude)".to_string(),
+            "Anthropic".to_string(),
             vec![
-                "claude-sonnet-5".to_string(),
-                "claude-opus-4-8".to_string(),
+                "claude-sonnet-4-5".to_string(),
                 "claude-haiku-4-5".to_string(),
             ],
-            Some("claude-sonnet-5".to_string()),
+            Some("claude-sonnet-4-5".to_string()),
             true,
             ProviderDeployment::Hosted,
         ),
@@ -243,20 +252,6 @@ pub fn make_onboarding_provider(
                 "gemini-2.5-pro".to_string(),
             ],
             Some("gemini-2.5-flash".to_string()),
-            true,
-            ProviderDeployment::Hosted,
-        ),
-        ProviderChoice::Openai => (
-            "openai".to_string(),
-            ProviderKind::Openai,
-            "OpenAI".to_string(),
-            vec![
-                "gpt-4o".to_string(),
-                "gpt-4o-mini".to_string(),
-                "gpt-4.1".to_string(),
-                "o3-mini".to_string(),
-            ],
-            Some("gpt-4o".to_string()),
             true,
             ProviderDeployment::Hosted,
         ),
@@ -300,17 +295,27 @@ pub fn make_onboarding_provider(
             false,
             ProviderDeployment::Local,
         ),
+        ProviderChoice::Tailscale => (
+            "custom:onboarding-tailscale".to_string(),
+            ProviderKind::Openai,
+            "Tailscale model".to_string(),
+            Vec::new(),
+            None,
+            false,
+            ProviderDeployment::Local,
+        ),
     };
     let base_url = if base_url.trim().is_empty() {
         match choice {
             ProviderChoice::ChatGpt => return None,
+            ProviderChoice::Openai => "https://api.openai.com/v1",
             ProviderChoice::Anthropic => "https://api.anthropic.com/v1",
             ProviderChoice::Google => "https://generativelanguage.googleapis.com/v1beta",
-            ProviderChoice::Openai => "https://api.openai.com/v1",
             ProviderChoice::DeepSeek => "https://api.deepseek.com/v1",
             ProviderChoice::Moonshot => "https://api.moonshot.ai/v1",
             ProviderChoice::LmStudio => "http://127.0.0.1:1234/v1",
             ProviderChoice::Ollama => "http://127.0.0.1:11434/v1",
+            ProviderChoice::Tailscale => "",
         }
     } else {
         base_url.trim()
@@ -350,13 +355,6 @@ pub enum NextOutcome {
     Blocked,
 }
 
-/// One selectable model on the Model step.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OnboardingModelOption {
-    pub id: String,
-    pub is_default: bool,
-}
-
 /// The pure step-state machine. No IO, no GPUI: every transition and the
 /// validation copy are unit-tested below (mirroring `onboarding-flow.test.tsx`).
 #[derive(Debug, Clone)]
@@ -367,16 +365,11 @@ pub struct OnboardingMachine {
     pub api_key: String,
     pub defer_pi_setup: bool,
     pub base_url: String,
-    pub selected_model: Option<String>,
-    pub preset: PresetId,
-    pub mode: Mode,
+    /// Kept outside the visible step model so animation follows the persisted
+    /// accessibility preference without adding a Rust-only Appearance step.
     pub reduce_motion: ReduceMotion,
     pub saved_provider: Option<OnboardingProvider>,
     pub codex_configured: bool,
-    /// Fallback catalog loaded from the store at boot (used when the user
-    /// skips the provider save).
-    pub catalog: Vec<String>,
-    pub catalog_provider_id: Option<String>,
     completed: bool,
     pub error: Option<&'static str>,
 }
@@ -386,20 +379,14 @@ impl Default for OnboardingMachine {
         Self {
             step_index: 0,
             name: String::new(),
-            // Keep the key-based first option selected until the user
-            // explicitly chooses the networked ChatGPT sign-in action.
-            choice: ProviderChoice::Anthropic,
+            // Current Main opens the provider step on ChatGPT sign in.
+            choice: ProviderChoice::ChatGpt,
             api_key: String::new(),
             defer_pi_setup: false,
             base_url: String::new(),
-            selected_model: None,
-            preset: PresetId::Aiden,
-            mode: Mode::System,
             reduce_motion: ReduceMotion::System,
             saved_provider: None,
             codex_configured: false,
-            catalog: Vec::new(),
-            catalog_provider_id: None,
             completed: false,
             error: None,
         }
@@ -421,6 +408,13 @@ impl OnboardingMachine {
 
     pub fn total_steps(&self) -> usize {
         Step::ALL.len()
+    }
+
+    /// Dev visual-QA entrypoint. Production never calls this; the index is
+    /// clamped through the same source-of-truth list as normal navigation.
+    pub fn start_at_step_for_visual_qa(&mut self, step_index: usize) {
+        self.step_index = step_index.min(Step::ALL.len() - 1);
+        self.error = None;
     }
 
     #[allow(dead_code)] // renderer-contract helper; the view emits the completion event
@@ -454,24 +448,29 @@ impl OnboardingMachine {
                 None
             }
             Step::Provider => {
-                if self.choice == ProviderChoice::ChatGpt && !self.codex_configured {
-                    return Some("Sign in to ChatGPT, or choose another provider.");
-                }
                 if self.choice.requires_key()
                     && !self.defer_pi_setup
                     && self.api_key.trim().is_empty()
                 {
-                    return Some("Paste an API key or choose a local option.");
+                    return Some("Paste an API key or choose a sign-in/local option.");
+                }
+                if self.choice == ProviderChoice::Tailscale && self.base_url.trim().is_empty() {
+                    return Some("Enter the Tailscale model server URL before continuing.");
                 }
                 None
             }
-            Step::Model | Step::Appearance | Step::Permissions | Step::Finish => None,
+            Step::Finish => None,
         }
     }
 
     /// Whether the Next button is enabled (TS `canContinue`).
     pub fn can_continue(&self) -> bool {
-        self.validate().is_none()
+        match self.current() {
+            Step::Welcome => self.validate().is_none(),
+            // Current Main enables Next as soon as a provider card is selected,
+            // then surfaces field/setup errors after activation.
+            Step::Provider | Step::Finish => true,
+        }
     }
 
     /// Move to the next step without validation (the view calls this only
@@ -526,10 +525,10 @@ impl OnboardingMachine {
         PendingProviderSave { provider, api_key }
     }
 
-    /// Record a successful provider save (config + keychain write) and seed
-    /// the model step with the provider's default.
+    /// Record a successful provider save (config + keychain write). Current
+    /// Main has no separate model step, so the provider's default is persisted
+    /// immediately by the view.
     pub fn record_provider_saved(&mut self, provider: OnboardingProvider) {
-        self.selected_model = provider.default_model.clone();
         self.saved_provider = Some(provider);
         self.error = None;
     }
@@ -550,77 +549,16 @@ impl OnboardingMachine {
         });
     }
 
-    /// Load the configured-provider catalog read at boot (returning users).
-    pub fn set_catalog(&mut self, provider_id: Option<String>, models: Vec<String>) {
-        self.catalog_provider_id = provider_id;
-        self.catalog = models;
-    }
-
-    /// Models offered on the Model step: the just-saved provider's list, else
-    /// the boot catalog.
-    pub fn model_options(&self) -> Vec<OnboardingModelOption> {
-        if let Some(provider) = &self.saved_provider {
-            return provider
-                .models
-                .iter()
-                .map(|id| OnboardingModelOption {
-                    id: id.clone(),
-                    is_default: provider.default_model.as_deref() == Some(id),
-                })
-                .collect();
-        }
-        self.catalog
-            .iter()
-            .enumerate()
-            .map(|(index, id)| OnboardingModelOption {
-                id: id.clone(),
-                is_default: index == 0,
-            })
-            .collect()
-    }
-
-    pub fn set_model(&mut self, model: Option<String>) {
-        self.selected_model = model;
-    }
-
-    /// The resolved `(providerId, model)` pair to persist under
-    /// `modelSelection`, or `None` when nothing was configured.
-    pub fn selection(&self) -> Option<(String, String)> {
-        let provider_id = self
-            .saved_provider
-            .as_ref()
-            .map(|provider| provider.id.clone())
-            .or_else(|| self.catalog_provider_id.clone())?;
-        let model = self.selected_model.clone().or_else(|| {
-            self.saved_provider
-                .as_ref()
-                .and_then(|provider| provider.default_model.clone())
-                .or_else(|| self.catalog.first().cloned())
-        })?;
-        Some((provider_id, model))
-    }
-
-    pub fn set_preset(&mut self, preset: PresetId) {
-        self.preset = preset;
-    }
-
-    pub fn set_mode(&mut self, mode: Mode) {
-        self.mode = mode;
+    /// The implicit `(providerId, defaultModel)` pair current Main selects as
+    /// part of provider setup.
+    pub fn default_selection(&self) -> Option<(String, String)> {
+        let provider = self.saved_provider.as_ref()?;
+        let model = provider.default_model.clone()?;
+        Some((provider.id.clone(), model))
     }
 
     pub fn set_reduce_motion(&mut self, reduce_motion: ReduceMotion) {
         self.reduce_motion = reduce_motion;
-    }
-
-    /// The full appearance config for the chosen preset + mode (used for the
-    /// live preview and for persisting under the `appearance` settings key).
-    pub fn appearance_config(&self) -> AppearanceConfig {
-        let mut config = create_default_appearance_config();
-        config.mode = self.mode;
-        config.light = get_preset_variant(self.preset, Scheme::Light);
-        config.dark = get_preset_variant(self.preset, Scheme::Dark);
-        config.reduce_motion = self.reduce_motion;
-        config
     }
 }
 
@@ -674,8 +612,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // onboarding-flow.test.tsx — "onboarding provider choices preserve local
-    // and hosted defaults"
+    // onboarding-provider.test.ts — exact compact connection records
     // -----------------------------------------------------------------------
 
     #[test]
@@ -683,34 +620,12 @@ mod tests {
         assert_eq!(
             make_onboarding_provider(ProviderChoice::Anthropic, ""),
             Some(OnboardingProvider {
-                id: "anthropic".into(),
+                id: "custom:onboarding-anthropic".into(),
                 kind: ProviderKind::Anthropic,
-                label: "Anthropic (Claude)".into(),
+                label: "Anthropic".into(),
                 base_url: "https://api.anthropic.com/v1".into(),
-                models: vec![
-                    "claude-sonnet-5".into(),
-                    "claude-opus-4-8".into(),
-                    "claude-haiku-4-5".into(),
-                ],
-                default_model: Some("claude-sonnet-5".into()),
-                needs_key: true,
-                deployment: ProviderDeployment::Hosted,
-            })
-        );
-
-        assert_eq!(
-            make_onboarding_provider(ProviderChoice::Google, ""),
-            Some(OnboardingProvider {
-                id: "google".into(),
-                kind: ProviderKind::Openai,
-                label: "Google Gemini".into(),
-                base_url: "https://generativelanguage.googleapis.com/v1beta".into(),
-                models: vec![
-                    "gemini-2.5-flash".into(),
-                    "gemini-2.5-flash-lite".into(),
-                    "gemini-2.5-pro".into(),
-                ],
-                default_model: Some("gemini-2.5-flash".into()),
+                models: vec!["claude-sonnet-4-5".into(), "claude-haiku-4-5".into()],
+                default_model: Some("claude-sonnet-4-5".into()),
                 needs_key: true,
                 deployment: ProviderDeployment::Hosted,
             })
@@ -719,49 +634,12 @@ mod tests {
         assert_eq!(
             make_onboarding_provider(ProviderChoice::Openai, "https://gateway.example/v1"),
             Some(OnboardingProvider {
-                id: "openai".into(),
+                id: "custom:onboarding-openai".into(),
                 kind: ProviderKind::Openai,
                 label: "OpenAI".into(),
                 base_url: "https://gateway.example/v1".into(),
-                models: vec![
-                    "gpt-4o".into(),
-                    "gpt-4o-mini".into(),
-                    "gpt-4.1".into(),
-                    "o3-mini".into()
-                ],
-                default_model: Some("gpt-4o".into()),
-                needs_key: true,
-                deployment: ProviderDeployment::Hosted,
-            })
-        );
-
-        assert_eq!(
-            make_onboarding_provider(ProviderChoice::DeepSeek, ""),
-            Some(OnboardingProvider {
-                id: "deepseek".into(),
-                kind: ProviderKind::Openai,
-                label: "DeepSeek".into(),
-                base_url: "https://api.deepseek.com/v1".into(),
-                models: vec!["deepseek-chat".into(), "deepseek-reasoner".into()],
-                default_model: Some("deepseek-chat".into()),
-                needs_key: true,
-                deployment: ProviderDeployment::Hosted,
-            })
-        );
-
-        assert_eq!(
-            make_onboarding_provider(ProviderChoice::Moonshot, ""),
-            Some(OnboardingProvider {
-                id: "moonshotai".into(),
-                kind: ProviderKind::Openai,
-                label: "Moonshot (Kimi)".into(),
-                base_url: "https://api.moonshot.ai/v1".into(),
-                models: vec![
-                    "kimi-k2-0711-preview".into(),
-                    "moonshot-v1-128k".into(),
-                    "moonshot-v1-32k".into(),
-                ],
-                default_model: Some("kimi-k2-0711-preview".into()),
+                models: vec!["gpt-4.1".into(), "gpt-4.1-mini".into()],
+                default_model: Some("gpt-4.1-mini".into()),
                 needs_key: true,
                 deployment: ProviderDeployment::Hosted,
             })
@@ -794,72 +672,72 @@ mod tests {
                 deployment: ProviderDeployment::Local,
             })
         );
+
+        assert_eq!(
+            make_onboarding_provider(ProviderChoice::Tailscale, "https://model.tailnet.ts.net/v1"),
+            Some(OnboardingProvider {
+                id: "custom:onboarding-tailscale".into(),
+                kind: ProviderKind::Openai,
+                label: "Tailscale model".into(),
+                base_url: "https://model.tailnet.ts.net/v1".into(),
+                models: vec![],
+                default_model: None,
+                needs_key: false,
+                deployment: ProviderDeployment::Local,
+            })
+        );
     }
 
-    /// Compact parity lock: the five hosted providers map to the real builtin
-    /// IDs, model lists, and defaults from the TS config services.
+    /// Compact parity lock: source order, copy, and icon identities must stay
+    /// identical to `providerChoices` in the Electron flow.
     #[test]
-    fn hosted_providers_match_the_real_builtin_presets() {
-        let expected: [(&str, &[&str], &str); 5] = [
+    fn compact_provider_choices_match_current_main() {
+        let expected = [
             (
-                "anthropic",
-                &["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5"],
-                "claude-sonnet-5",
-            ),
-            (
-                "google",
-                &[
-                    "gemini-2.5-flash",
-                    "gemini-2.5-flash-lite",
-                    "gemini-2.5-pro",
-                ],
-                "gemini-2.5-flash",
-            ),
-            (
+                ProviderChoice::Openai,
+                "OpenAI API key",
+                "Connect with your own API key.",
                 "openai",
-                &["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini"],
-                "gpt-4o",
             ),
             (
-                "deepseek",
-                &["deepseek-chat", "deepseek-reasoner"],
-                "deepseek-chat",
+                ProviderChoice::ChatGpt,
+                "ChatGPT sign in",
+                "Connect through browser sign-in.",
+                "openai-codex",
             ),
             (
-                "moonshotai",
-                &[
-                    "kimi-k2-0711-preview",
-                    "moonshot-v1-128k",
-                    "moonshot-v1-32k",
-                ],
-                "kimi-k2-0711-preview",
+                ProviderChoice::Anthropic,
+                "Anthropic API key",
+                "Connect with your Anthropic API key.",
+                "anthropic",
+            ),
+            (
+                ProviderChoice::LmStudio,
+                "LM Studio",
+                "Use models running in LM Studio.",
+                "custom:lmstudio",
+            ),
+            (
+                ProviderChoice::Ollama,
+                "Ollama",
+                "Use models running in Ollama.",
+                "custom:ollama",
+            ),
+            (
+                ProviderChoice::Tailscale,
+                "Tailscale custom model",
+                "Connect to a private model on your tailnet.",
+                "",
             ),
         ];
-        let choices = [
-            ProviderChoice::Anthropic,
-            ProviderChoice::Google,
-            ProviderChoice::Openai,
-            ProviderChoice::DeepSeek,
-            ProviderChoice::Moonshot,
-        ];
-        for (choice, (id, models, default_model)) in choices.into_iter().zip(expected) {
-            let provider = make_onboarding_provider(choice, "").expect("hosted provider");
-            assert_eq!(provider.id, id, "{choice:?} id");
-            assert_eq!(
-                provider.models,
-                models
-                    .iter()
-                    .map(|model| model.to_string())
-                    .collect::<Vec<_>>(),
-                "{choice:?} model list"
-            );
-            assert_eq!(
-                provider.default_model.as_deref(),
-                Some(default_model),
-                "{choice:?} default model"
-            );
-            assert!(provider.needs_key, "{choice:?} needs a key");
-            assert_eq!(provider.deployment, ProviderDeployment::Hosted);
+        assert_eq!(ProviderChoice::ALL.len(), expected.len());
+        for (actual, (choice, title, description, icon)) in
+            ProviderChoice::ALL.iter().copied().zip(expected)
+        {
+            assert_eq!(actual, choice);
+            assert_eq!(actual.title(), title);
+            assert_eq!(actual.description(), description);
+            assert_eq!(actual.icon_provider_id(), icon);
         }
     }
 
@@ -928,17 +806,11 @@ mod tests {
         machine.next();
 
         // Every key-requiring choice demands a key.
-        for choice in [
-            ProviderChoice::Anthropic,
-            ProviderChoice::Google,
-            ProviderChoice::Openai,
-            ProviderChoice::DeepSeek,
-            ProviderChoice::Moonshot,
-        ] {
+        for choice in [ProviderChoice::Anthropic, ProviderChoice::Openai] {
             machine.choice = choice;
             assert_eq!(
                 machine.validate(),
-                Some("Paste an API key or choose a local option."),
+                Some("Paste an API key or choose a sign-in/local option."),
                 "{choice:?} requires a key"
             );
             machine.api_key = "  sk-ant-abcdef  ".into();
@@ -955,6 +827,13 @@ mod tests {
             machine.choice = choice;
             assert_eq!(machine.validate(), None, "{choice:?} is keyless");
         }
+        machine.choice = ProviderChoice::Tailscale;
+        assert_eq!(
+            machine.validate(),
+            Some("Enter the Tailscale model server URL before continuing.")
+        );
+        machine.base_url = "https://model.tailnet.ts.net/v1".into();
+        assert_eq!(machine.validate(), None);
     }
 
     #[test]
@@ -970,7 +849,7 @@ mod tests {
         assert_eq!(pending.api_key, None);
         assert_eq!(
             pending.provider.map(|provider| provider.id),
-            Some("anthropic".to_string())
+            Some("custom:onboarding-anthropic".to_string())
         );
     }
 
@@ -990,7 +869,7 @@ mod tests {
                 .provider
                 .as_ref()
                 .map(|provider| provider.id.as_str()),
-            Some("anthropic")
+            Some("custom:onboarding-anthropic")
         );
 
         machine.choice = ProviderChoice::LmStudio;
@@ -1004,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn model_step_resolves_selection_from_the_saved_provider() {
+    fn provider_step_resolves_the_implicit_default_model_selection() {
         let mut machine = OnboardingMachine::new();
         machine.name = "Ada".into();
         machine.next();
@@ -1019,105 +898,40 @@ mod tests {
             machine
                 .saved_provider()
                 .map(|provider| provider.id.as_str()),
-            Some("anthropic")
+            Some("custom:onboarding-anthropic")
         );
         assert_eq!(machine.current(), Step::Provider);
         assert_eq!(machine.next(), NextOutcome::Advanced);
-        assert_eq!(machine.current(), Step::Model);
-
-        let options = machine.model_options();
+        assert_eq!(machine.current(), Step::Finish);
         assert_eq!(
-            options,
-            vec![
-                OnboardingModelOption {
-                    id: "claude-sonnet-5".into(),
-                    is_default: true
-                },
-                OnboardingModelOption {
-                    id: "claude-opus-4-8".into(),
-                    is_default: false
-                },
-                OnboardingModelOption {
-                    id: "claude-haiku-4-5".into(),
-                    is_default: false
-                },
-            ]
-        );
-        // The default model is pre-selected and persists under modelSelection.
-        assert_eq!(
-            machine.selection(),
-            Some(("anthropic".to_string(), "claude-sonnet-5".to_string()))
-        );
-
-        machine.set_model(Some("claude-haiku-4-5".into()));
-        assert_eq!(
-            machine.selection(),
-            Some(("anthropic".to_string(), "claude-haiku-4-5".to_string()))
+            machine.default_selection(),
+            Some((
+                "custom:onboarding-anthropic".to_string(),
+                "claude-sonnet-4-5".to_string()
+            ))
         );
     }
 
     #[test]
-    fn model_step_without_a_provider_offers_the_catalog() {
-        let mut machine = OnboardingMachine::new();
-        machine.name = "Ada".into();
-        machine.next();
-        // Skip the provider save (no record persisted) and use the catalog.
-        machine.api_key = "sk-ant-abcdef".into();
-        machine.set_catalog(
-            Some("custom:existing".into()),
-            vec!["model-a".into(), "model-b".into()],
-        );
-        machine.next();
-        assert_eq!(machine.current(), Step::Model);
+    fn exact_current_main_step_contract_is_three_steps() {
+        assert_eq!(Step::ALL, &[Step::Welcome, Step::Provider, Step::Finish]);
         assert_eq!(
-            machine.model_options(),
-            vec![
-                OnboardingModelOption {
-                    id: "model-a".into(),
-                    is_default: true
-                },
-                OnboardingModelOption {
-                    id: "model-b".into(),
-                    is_default: false
-                },
-            ]
+            Step::ALL
+                .iter()
+                .map(|step| step.label())
+                .collect::<Vec<_>>(),
+            vec!["Your profile", "Model provider", "Ready to go"]
         );
-        assert_eq!(
-            machine.selection(),
-            Some(("custom:existing".into(), "model-a".into()))
-        );
-    }
-
-    #[test]
-    fn appearance_step_composes_the_full_config() {
-        let mut machine = OnboardingMachine::new();
-        machine.name = "Ada".into();
-        machine.api_key = "sk-ant-abcdef".into(); // default choice (Anthropic) needs a key
-        machine.next();
-        machine.next();
-        assert_eq!(machine.current(), Step::Model);
-        machine.next();
-        assert_eq!(machine.current(), Step::Appearance);
-
-        machine.set_preset(PresetId::Berry);
-        machine.set_mode(Mode::Dark);
-        let config = machine.appearance_config();
-        assert_eq!(config.mode, Mode::Dark);
-        assert_eq!(config.dark.preset, aiden_core::appearance::Selection::Berry);
-        assert_eq!(
-            config.light.preset,
-            aiden_core::appearance::Selection::Berry
-        );
-        assert_eq!(config.reduce_motion, ReduceMotion::System);
     }
 
     #[test]
     fn finish_marks_the_flow_complete() {
         let mut machine = OnboardingMachine::new();
         machine.name = "Ada".into();
-        machine.api_key = "sk-ant-abcdef".into(); // default choice (Anthropic) needs a key
-                                                  // Walk the whole flow.
-        for _ in 0..5 {
+        machine.choice = ProviderChoice::Anthropic;
+        machine.api_key = "sk-ant-abcdef".into();
+        // Walk the exact three-step flow.
+        for _ in 0..2 {
             let outcome = machine.next();
             assert_eq!(outcome, NextOutcome::Advanced);
         }
@@ -1200,8 +1014,9 @@ mod tests {
     fn advance_is_bounded_by_the_finish_step() {
         let mut machine = OnboardingMachine::new();
         machine.name = "Ada".into();
-        machine.api_key = "sk-ant-abcdef".into(); // default choice (Anthropic) needs a key
-                                                  // Walk the flow, then hammer Next well past the end.
+        machine.choice = ProviderChoice::Anthropic;
+        machine.api_key = "sk-ant-abcdef".into();
+        // Walk the flow, then hammer Next well past the end.
         for _ in 0..10 {
             let _ = machine.next();
         }
@@ -1236,24 +1051,6 @@ mod tests {
     }
 
     #[test]
-    fn model_step_with_no_provider_or_catalog_still_advances() {
-        let mut machine = OnboardingMachine::new();
-        machine.name = "Ada".into();
-        machine.api_key = "sk-ant-abcdef".into(); // default choice (Anthropic) needs a key
-        machine.next(); // → Provider
-        machine.next(); // → Model (no saved provider, no boot catalog)
-        assert!(machine.model_options().is_empty());
-        assert_eq!(machine.selection(), None);
-        assert_eq!(
-            machine.validate(),
-            None,
-            "no models to pick from is not a blocking validation error"
-        );
-        assert_eq!(machine.next(), NextOutcome::Advanced);
-        assert_eq!(machine.current(), Step::Appearance);
-    }
-
-    #[test]
     fn skip_then_advance_never_reenters_editing() {
         let mut machine = OnboardingMachine::new();
         machine.skip();
@@ -1269,7 +1066,7 @@ mod tests {
     }
 
     #[test]
-    fn choosing_chatgpt_does_not_start_or_persist_any_network_setup() {
+    fn choosing_chatgpt_defers_network_setup_to_the_view_activation_path() {
         let mut machine = OnboardingMachine::new();
         machine.choice = ProviderChoice::ChatGpt;
 
@@ -1278,14 +1075,12 @@ mod tests {
         assert_eq!(pending.provider, None);
         assert_eq!(pending.api_key, None);
         machine.step_index = Step::Provider.index();
-        assert_eq!(
-            machine.validate(),
-            Some("Sign in to ChatGPT, or choose another provider.")
-        );
+        assert_eq!(machine.validate(), None);
+        assert!(machine.can_continue());
     }
 
     #[test]
-    fn configured_chatgpt_exposes_bundled_models_and_exact_selection() {
+    fn configured_chatgpt_exposes_bundled_models_and_exact_default_selection() {
         let mut machine = OnboardingMachine::new();
         machine.choice = ProviderChoice::ChatGpt;
 
@@ -1293,11 +1088,13 @@ mod tests {
 
         assert!(machine.codex_configured);
         assert!(machine
-            .model_options()
+            .saved_provider()
+            .expect("configured Codex provider")
+            .models
             .iter()
-            .any(|model| model.id == "gpt-5.6-sol"));
+            .any(|model| model == "gpt-5.6-sol"));
         assert_eq!(
-            machine.selection(),
+            machine.default_selection(),
             Some(("openai-codex".to_string(), "gpt-5.4".to_string()))
         );
     }

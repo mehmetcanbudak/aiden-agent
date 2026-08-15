@@ -3455,192 +3455,184 @@ impl ChatService {
         // The background read/rename closure moves its own copy; the outer
         // `chat_id` stays for the foreground refresh below.
         let chat_id_for_read = chat_id.clone();
-        cx.spawn(async move |this, cx| {
-            let applied = cx
-                .background_spawn(async move {
-                    // Only a brand-new chat (exactly one user turn) whose title
-                    // is still the default or its seed is renamed by the model.
-                    let chat = stores.chat.get(&chat_id_for_read).ok().flatten()?;
-                    let user_turns = chat
-                        .messages
-                        .iter()
-                        .filter(|message| message.role == ChatRole::User)
-                        .count();
-                    if user_turns != 1 {
-                        return None;
-                    }
-                    let first_user = chat
-                        .messages
-                        .iter()
-                        .find(|message| message.role == ChatRole::User)?;
-                    // The store's own seed derivation guarantees `seed` equals
-                    // the title the first user message was stamped with.
-                    let seed = derive_chat_title_seed(first_user);
-                    if !can_replace_generated_chat_title(&chat.title, &seed) {
-                        return None;
-                    }
-                    let input = ChatTitleInput {
-                        content: first_user.content.clone(),
-                        attachments: first_user.attachments.clone(),
-                    };
-                    let prompt = build_chat_title_prompt(&input);
-                    let settings = stores.config.get_settings().unwrap_or_default();
-                    let title_provider = configured_title_provider(&settings);
-                    let foundation_status = if title_provider == ChatTitleProviderId::ChatModel {
-                        None
-                    } else {
-                        stores.foundation_models.status(false).await
-                    };
-                    let execution = resolve_title_execution(
-                        title_provider,
-                        foundation_status.as_ref(),
-                        &providers,
-                        selection.as_ref(),
-                    );
-                    match execution {
-                        TitleExecution::SeedOnly => None,
-                        TitleExecution::AppleFoundationModels => {
-                            let result = tokio::time::timeout(
-                                Duration::from_millis(TITLE_REQUEST_TIMEOUT_MS),
-                                stores
-                                    .foundation_models
-                                    .generate_title(&prompt, Some(&title_cancel)),
+        // Both provider streams and the native Foundation helper use Tokio
+        // timers/process I/O. Polling this work on GPUI's generic background
+        // executor panics because that executor has no Tokio reactor.
+        let title_task = Tokio::spawn(cx, async move {
+            // Only a brand-new chat (exactly one user turn) whose title
+            // is still the default or its seed is renamed by the model.
+            let chat = stores.chat.get(&chat_id_for_read).ok().flatten()?;
+            let user_turns = chat
+                .messages
+                .iter()
+                .filter(|message| message.role == ChatRole::User)
+                .count();
+            if user_turns != 1 {
+                return None;
+            }
+            let first_user = chat
+                .messages
+                .iter()
+                .find(|message| message.role == ChatRole::User)?;
+            // The store's own seed derivation guarantees `seed` equals the
+            // title the first user message was stamped with.
+            let seed = derive_chat_title_seed(first_user);
+            if !can_replace_generated_chat_title(&chat.title, &seed) {
+                return None;
+            }
+            let input = ChatTitleInput {
+                content: first_user.content.clone(),
+                attachments: first_user.attachments.clone(),
+            };
+            let prompt = build_chat_title_prompt(&input);
+            let settings = stores.config.get_settings().unwrap_or_default();
+            let title_provider = configured_title_provider(&settings);
+            let foundation_status = if title_provider == ChatTitleProviderId::ChatModel {
+                None
+            } else {
+                stores.foundation_models.status(false).await
+            };
+            let execution = resolve_title_execution(
+                title_provider,
+                foundation_status.as_ref(),
+                &providers,
+                selection.as_ref(),
+            );
+            match execution {
+                TitleExecution::SeedOnly => None,
+                TitleExecution::AppleFoundationModels => {
+                    let result = tokio::time::timeout(
+                        Duration::from_millis(TITLE_REQUEST_TIMEOUT_MS),
+                        stores
+                            .foundation_models
+                            .generate_title(&prompt, Some(&title_cancel)),
+                    )
+                    .await;
+                    let result = match result {
+                        Ok(result) => result,
+                        Err(_) => {
+                            title_cancel.cancel();
+                            Err(
+                                aiden_computer_use::FoundationModelsConnectionError::retryable(
+                                    "timeout",
+                                    "Apple Foundation Models title generation timed out.",
+                                ),
                             )
-                            .await;
-                            let result = match result {
-                                Ok(result) => result,
-                                Err(_) => {
-                                    title_cancel.cancel();
-                                    Err(aiden_computer_use::FoundationModelsConnectionError::retryable(
-                                        "timeout",
-                                        "Apple Foundation Models title generation timed out.",
-                                    ))
-                                }
-                            };
-                            let status =
-                                foundation_title_result_status(&title_cancel, &result);
-                            let _ = stores.usage.record(&title_usage_record(
-                                "apple-foundation-models",
-                                "Apple Foundation Models",
-                                "apple-foundation-model",
-                                status,
-                                true,
-                                None,
-                            ));
-                            let title = sanitize_generated_chat_title(&result.ok()?)?;
-                            stores
-                                .chat
-                                .replace_auto_title(&chat_id_for_read, &seed, &title)
-                                .ok()
-                                .flatten()
                         }
-                        TitleExecution::ChatModel {
-                            provider,
-                            selection,
-                        } => {
-                            let api_key = resolve_runtime_api_key(
-                                &stores.config,
-                                &stores.pi_providers,
-                                &provider,
-                            );
-                            let request = StreamRequest {
-                                provider_id: selection.provider_id.clone(),
-                                api: provider.api_family(),
-                                model: selection.model.clone(),
-                                base_url: provider.base_url.clone(),
-                                messages: vec![Message::User(UserMessage {
-                                    content: UserContent::Text(prompt),
-                                    timestamp: aiden_data::now_millis(),
-                                })],
-                                system_prompt: Some(TITLE_SYSTEM_PROMPT.to_string()),
-                                max_tokens: Some(32),
-                                ..Default::default()
-                            };
-                            let transport =
-                                provider.transport_with_codex_auth(stores.codex_auth.clone());
-                            let stream = transport.stream_simple(
-                                &request,
-                                &StreamOptions {
-                                    api_key,
-                                    timeout_ms: Some(TITLE_REQUEST_TIMEOUT_MS),
-                                    ..Default::default()
-                                },
-                            );
-                            let Ok(mut stream) = stream else {
-                                let _ = stores.usage.record(&title_usage_record(
-                                    &provider.id,
-                                    &provider.label,
-                                    &selection.model,
-                                    UsageRequestStatus::Failed,
-                                    false,
-                                    None,
-                                ));
-                                return None;
-                            };
-                            let mut text = String::new();
-                            let deadline = tokio::time::sleep(Duration::from_millis(
-                                TITLE_REQUEST_TIMEOUT_MS,
-                            ));
-                            tokio::pin!(deadline);
-                            let mut status = UsageRequestStatus::Failed;
-                            let mut completed_usage = None;
-                            loop {
-                                let event = tokio::select! {
-                                    () = title_cancel.cancelled() => {
-                                        status = UsageRequestStatus::Cancelled;
-                                        None
-                                    }
-                                    () = &mut deadline => {
-                                        title_cancel.cancel();
-                                        status = UsageRequestStatus::Cancelled;
-                                        None
-                                    }
-                                    event = stream.next() => event,
-                                };
-                                let Some(event) = event else { break; };
-                                match event {
-                                    Ok(aiden_core::AssistantMessageEvent::TextDelta {
-                                        delta,
-                                        ..
-                                    }) => {
-                                        text.push_str(&delta);
-                                    }
-                                    Ok(aiden_core::AssistantMessageEvent::Done {
-                                        message, ..
-                                    }) => {
-                                        completed_usage = Some(message.usage);
-                                        text = message_content(&message).0;
-                                        status = UsageRequestStatus::Completed;
-                                        break;
-                                    }
-                                    Ok(_) => break,
-                                    Err(error) => {
-                                        status = chat_title_stream_error_status(
-                                            &title_cancel,
-                                            &error,
-                                        );
-                                        break;
-                                    }
-                                }
+                    };
+                    let status = foundation_title_result_status(&title_cancel, &result);
+                    let _ = stores.usage.record(&title_usage_record(
+                        "apple-foundation-models",
+                        "Apple Foundation Models",
+                        "apple-foundation-model",
+                        status,
+                        true,
+                        None,
+                    ));
+                    let title = sanitize_generated_chat_title(&result.ok()?)?;
+                    stores
+                        .chat
+                        .replace_auto_title(&chat_id_for_read, &seed, &title)
+                        .ok()
+                        .flatten()
+                }
+                TitleExecution::ChatModel {
+                    provider,
+                    selection,
+                } => {
+                    let api_key =
+                        resolve_runtime_api_key(&stores.config, &stores.pi_providers, &provider);
+                    let request = StreamRequest {
+                        provider_id: selection.provider_id.clone(),
+                        api: provider.api_family(),
+                        model: selection.model.clone(),
+                        base_url: provider.base_url.clone(),
+                        messages: vec![Message::User(UserMessage {
+                            content: UserContent::Text(prompt),
+                            timestamp: aiden_data::now_millis(),
+                        })],
+                        system_prompt: Some(TITLE_SYSTEM_PROMPT.to_string()),
+                        max_tokens: Some(32),
+                        ..Default::default()
+                    };
+                    let transport = provider.transport_with_codex_auth(stores.codex_auth.clone());
+                    let stream = transport.stream_simple(
+                        &request,
+                        &StreamOptions {
+                            api_key,
+                            timeout_ms: Some(TITLE_REQUEST_TIMEOUT_MS),
+                            ..Default::default()
+                        },
+                    );
+                    let Ok(mut stream) = stream else {
+                        let _ = stores.usage.record(&title_usage_record(
+                            &provider.id,
+                            &provider.label,
+                            &selection.model,
+                            UsageRequestStatus::Failed,
+                            false,
+                            None,
+                        ));
+                        return None;
+                    };
+                    let mut text = String::new();
+                    let deadline =
+                        tokio::time::sleep(Duration::from_millis(TITLE_REQUEST_TIMEOUT_MS));
+                    tokio::pin!(deadline);
+                    let mut status = UsageRequestStatus::Failed;
+                    let mut completed_usage = None;
+                    loop {
+                        let event = tokio::select! {
+                            () = title_cancel.cancelled() => {
+                                status = UsageRequestStatus::Cancelled;
+                                None
                             }
-                            let _ = stores.usage.record(&title_usage_record(
-                                &provider.id,
-                                &provider.label,
-                                &selection.model,
-                                status,
-                                false,
-                                completed_usage.as_ref(),
-                            ));
-                            let title = sanitize_generated_chat_title(&text)?;
-                            stores
-                                .chat
-                                .replace_auto_title(&chat_id_for_read, &seed, &title)
-                                .ok()
-                                .flatten()
+                            () = &mut deadline => {
+                                title_cancel.cancel();
+                                status = UsageRequestStatus::Cancelled;
+                                None
+                            }
+                            event = stream.next() => event,
+                        };
+                        let Some(event) = event else {
+                            break;
+                        };
+                        match event {
+                            Ok(aiden_core::AssistantMessageEvent::TextDelta { delta, .. }) => {
+                                text.push_str(&delta);
+                            }
+                            Ok(aiden_core::AssistantMessageEvent::Done { message, .. }) => {
+                                completed_usage = Some(message.usage);
+                                text = message_content(&message).0;
+                                status = UsageRequestStatus::Completed;
+                                break;
+                            }
+                            Ok(_) => break,
+                            Err(error) => {
+                                status = chat_title_stream_error_status(&title_cancel, &error);
+                                break;
+                            }
                         }
                     }
-                })
-                .await;
+                    let _ = stores.usage.record(&title_usage_record(
+                        &provider.id,
+                        &provider.label,
+                        &selection.model,
+                        status,
+                        false,
+                        completed_usage.as_ref(),
+                    ));
+                    let title = sanitize_generated_chat_title(&text)?;
+                    stores
+                        .chat
+                        .replace_auto_title(&chat_id_for_read, &seed, &title)
+                        .ok()
+                        .flatten()
+                }
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let applied = title_task.await.ok().flatten();
             if let Some(updated) = applied {
                 this.update(cx, |this, cx| {
                     if this.active_chat_id.as_deref() == Some(chat_id.as_str()) {
@@ -4095,6 +4087,18 @@ mod tests {
             WorkspacePermission::Ask,
         )
         .is_some());
+    }
+
+    #[test]
+    fn automatic_title_generation_stays_on_the_tokio_bridge() {
+        let source = include_str!("chat_service.rs");
+        let title_generation = source
+            .split("fn maybe_generate_first_turn_title")
+            .nth(1)
+            .and_then(|source| source.split("fn on_stream_closed").next())
+            .expect("title generation source");
+        assert!(title_generation.contains("let title_task = Tokio::spawn(cx"));
+        assert!(!title_generation.contains("cx.background_spawn"));
     }
 
     fn recovery_record() -> (

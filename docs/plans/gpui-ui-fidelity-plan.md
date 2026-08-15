@@ -6,7 +6,7 @@ Status: active | Started: 2026-08-10 | Branch: `gpui-rust`
 
 Bring the completed Rust/GPUI port to user-facing parity with the Electron/React application. Preserve the native Rust architecture while matching the Electron shell geometry, semantic appearance tokens, interaction states, focus behavior, and responsive contracts.
 
-Pixel comparison uses isolated development profiles. Automated capture is currently blocked until the Codex host receives macOS Screen Recording permission, so each phase also carries source-contract, focused-test, strict-Clippy, and isolated-runtime gates.
+Pixel comparison uses isolated development profiles. Source-contract, focused-test, strict-Clippy, and isolated-runtime gates remain mandatory. The reported onboarding/provider/finish parity repair now has accepted source-versus-GPUI comparisons in `design-qa.md`; Phase 6 remains active for the explicitly documented secondary-surface and unavailable-runtime lanes, not because the reported visual repair is waiting for capture.
 
 ## Phases
 
@@ -775,6 +775,37 @@ Pixel comparison uses isolated development profiles. Automated capture is curren
   with the full workspace suite and strict Clippy/fmt/diff gates. This lane does
   not claim per-token activity updates or depth-2/background execution.
 
-## Known visual-QA constraint
+## Phase 6AP Main synchronization and reported visual-parity repair
 
-The app windows can be launched with disposable `HOME`, `AIDEN_CONFIG_DIR`, and user-data roots. Quartz confirms actual window bounds, but `screencapture -l` is denied until Screen Recording permission is granted to the terminal/Codex host. Once enabled, capture Electron and GPUI at the same 1000×700 outer bounds, display scale, fixture data, and light/dark system appearance; compare absolute error and a 50% overlay.
+- Merged `origin/main` through `c8053ba` into `gpui-rust` in merge commit
+  `c437938`. The port now carries Main's `0.28.0` renderer/runtime contracts;
+  the stale GPUI About-version assertion was updated to catch future release
+  drift.
+- Rebuilt first-run onboarding around the current Electron 860×600 shell: a
+  220px branded setup rail, six labeled vertical steps, semantic header/body/
+  footer surfaces, pre-window appearance application, real provider marks,
+  source Lucide control icons, current provider order/density, and all 22
+  current feature illustrations in the grouped finish-tour grid. The body now
+  owns scrolling while the footer remains fixed, including at the compact
+  provider-card density captured for acceptance.
+- Bounded the composer model trigger to the current short-label contract with
+  provider identity and full-detail tooltip, restored the 9×9 empty Model Pad
+  lattice and customization action, and made persisted reasoning a collapsed,
+  independently keyed disclosure with the current 144px scroll body.
+- Live QA exposed a Settings P0: Foundation Models status polling used GPUI's
+  generic background executor and panicked because no Tokio reactor was active.
+  Settings boot and the same latent automatic-title path now use the Tokio
+  bridge, with focused regression tests. Repeating the exact Settings sequence
+  remained alive for ten seconds and displayed the native provider as Ready.
+- Provider full-view and finish card-level comparisons were recaptured after
+  the compact-card/scroll correction. `design-qa.md` records the exact source,
+  GPUI, combined-image paths, dimensions, and SHA-256 identities; no P0/P1/P2
+  mismatch remains in the audited states. Chromium/GPUI subpixel text
+  rasterization is treated as an engine difference, not a geometry defect.
+- Final gates pass: complete Rust workspace tests, strict all-target/all-feature
+  workspace Clippy, rustfmt, `npm test` (including native helper gates),
+  TypeScript type-checking, ESLint, and diff validation.
+
+## Visual-QA acceptance boundary
+
+The accepted provider comparison uses identical 2136×1536 light-theme source and GPUI captures placed side by side without scaling. The source finish window was captured at a different outer size, so acceptance there uses the identical 1720×1200 onboarding-card region from each renderer, again without scaling. This closes the reported onboarding repair, but it is not a claim that every transient state in the broader Phase 6 matrix has a byte-identical cross-renderer screenshot. The Electron source remains the parity oracle; `npm run dev:rs` runs the native Rust/GPUI implementation only.

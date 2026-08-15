@@ -5,7 +5,10 @@ use gpui::{AssetSource, Result, SharedString};
 /// App-owned assets layered over gpui-component's icon bundle.
 pub struct AppAssets;
 
-const PROVIDER_ASSET_PATHS: &[&str] = &[
+const APP_ASSET_PATHS: &[&str] = &[
+    "native-icons/blocks.svg",
+    "native-icons/lock.svg",
+    "native-icons/network.svg",
     "provider-logos/amazon-bedrock.svg",
     "provider-logos/ant-ling.svg",
     "provider-logos/anthropic.svg",
@@ -48,8 +51,17 @@ const PROVIDER_ASSET_PATHS: &[&str] = &[
     "provider-logos/zai-coding-cn.svg",
 ];
 
-fn provider_asset(path: &str) -> Option<&'static [u8]> {
+fn app_asset(path: &str) -> Option<&'static [u8]> {
     Some(match path {
+        "native-icons/blocks.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/blocks.svg")
+        }
+        "native-icons/lock.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/lock.svg")
+        }
+        "native-icons/network.svg" => {
+            include_bytes!("../../../renderer/assets/native-icons/network.svg")
+        }
         "provider-logos/amazon-bedrock.svg" => {
             include_bytes!("../../../renderer/assets/provider-logos/amazon-bedrock.svg")
         }
@@ -176,7 +188,7 @@ fn provider_asset(path: &str) -> Option<&'static [u8]> {
 
 impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        if let Some(asset) = provider_asset(path) {
+        if let Some(asset) = app_asset(path) {
             return Ok(Some(Cow::Borrowed(asset)));
         }
         gpui_component_assets::Assets.load(path)
@@ -185,7 +197,7 @@ impl AssetSource for AppAssets {
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut assets = gpui_component_assets::Assets.list(path)?;
         assets.extend(
-            PROVIDER_ASSET_PATHS
+            APP_ASSET_PATHS
                 .iter()
                 .filter(|candidate| candidate.starts_with(path))
                 .map(|candidate| SharedString::from(*candidate)),
@@ -199,9 +211,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_assets_are_embedded_alongside_component_icons() {
+    fn app_assets_are_embedded_alongside_component_icons() {
         assert!(AppAssets
             .load("provider-logos/anthropic.svg")
+            .unwrap()
+            .is_some());
+        assert!(AppAssets
+            .load("native-icons/network.svg")
             .unwrap()
             .is_some());
         assert!(AppAssets.load("icons/check.svg").unwrap().is_some());

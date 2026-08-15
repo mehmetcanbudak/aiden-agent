@@ -46,7 +46,7 @@ use gpui_component::{
     button::{Button, ButtonRounded, ButtonVariants as _},
     clipboard::Clipboard,
     h_flex,
-    spinner::Spinner,
+    scroll::ScrollableElement as _,
     text::TextView,
     v_flex, ActiveTheme, Icon, IconName, Sizable as _,
 };
@@ -456,6 +456,15 @@ fn render_assistant_message(
 ) -> impl IntoElement {
     let muted = cx.theme().muted;
     let message_id = message.id.clone();
+    let reasoning_disclosure = window.use_keyed_state(
+        ElementId::Name(SharedString::from(format!(
+            "persisted-reasoning-disclosure-{}",
+            message.id
+        ))),
+        cx,
+        |_, _| ReasoningDisclosureState::default(),
+    );
+    let reasoning_expanded = reasoning_disclosure.read(cx).expanded;
     v_flex()
         .id(ElementId::Name(SharedString::from(format!(
             "assistant-message-{}",
@@ -485,16 +494,30 @@ fn render_assistant_message(
                     v_flex()
                         .w_full()
                         .gap_1()
-                        .child(thinking_header(header_id, false, None, cx))
+                        .rounded_lg()
+                        .bg(muted)
                         .child(
-                            div()
-                                .w_full()
-                                .px_3()
-                                .py_2()
-                                .rounded_md()
-                                .bg(muted)
-                                .child(prewrap(reasoning)),
-                        ),
+                            thinking_header(header_id, false, reasoning_expanded, cx).on_click({
+                                let reasoning_disclosure = reasoning_disclosure.clone();
+                                move |_event, _window, cx| {
+                                    reasoning_disclosure.update(cx, |state, cx| {
+                                        state.expanded = !state.expanded;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                        )
+                        .when(reasoning_expanded, |el| {
+                            el.child(
+                                div()
+                                    .w_full()
+                                    .max_h(px(144.))
+                                    .overflow_y_scrollbar()
+                                    .px_3()
+                                    .pb_3()
+                                    .child(prewrap(reasoning)),
+                            )
+                        }),
                 )
             },
         )
@@ -620,8 +643,10 @@ fn render_stream_bubble(
                 v_flex()
                     .w_full()
                     .gap_1()
+                    .rounded_lg()
+                    .bg(muted)
                     .child(
-                        thinking_header("stream-thinking-header", true, Some(thinking_active), cx)
+                        thinking_header("stream-thinking-header", thinking_active, expanded, cx)
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.toggle_stream_thinking(cx);
                             })),
@@ -630,10 +655,10 @@ fn render_stream_bubble(
                         el.child(
                             div()
                                 .w_full()
+                                .max_h(px(144.))
+                                .overflow_y_scrollbar()
                                 .px_3()
-                                .py_2()
-                                .rounded_md()
-                                .bg(muted)
+                                .pb_3()
                                 .child(prewrap(&thinking_text)),
                         )
                     }),
@@ -933,6 +958,13 @@ struct StreamCursorState {
     spawned: bool,
 }
 
+/// Persisted reasoning starts collapsed, matching the Electron disclosure.
+/// The keyed window state keeps one independent toggle per assistant message.
+#[derive(Default)]
+struct ReasoningDisclosureState {
+    expanded: bool,
+}
+
 impl Default for StreamCursorState {
     fn default() -> Self {
         Self {
@@ -942,48 +974,46 @@ impl Default for StreamCursorState {
     }
 }
 
-/// The collapsible "Thinking" header. `interactive` renders the toggle afford
-/// (chevron when settled, spinner while thinking) and is clickable.
+/// The compact Electron-parity "Thinking" disclosure header.
 fn thinking_header(
     id: impl Into<ElementId>,
-    interactive: bool,
-    active: Option<bool>,
+    active: bool,
+    expanded: bool,
     cx: &mut App,
 ) -> gpui::Stateful<gpui::Div> {
     let muted_foreground = cx.theme().muted_foreground;
-    let accent = cx.theme().accent;
-    let afford = match (interactive, active) {
-        (true, Some(true)) => Spinner::new().small().color(accent).into_any_element(),
-        (true, _) => Icon::new(IconName::ChevronDown)
-            .small()
-            .text_color(muted_foreground)
-            .into_any_element(),
-        (false, _) => div().into_any_element(),
-    };
     h_flex()
         .id(id)
-        .gap_1()
+        .h(px(36.))
+        .w_full()
+        .gap_2()
         .items_center()
-        .px_2()
-        .py_0p5()
-        .rounded_md()
+        .px_3()
+        .rounded_lg()
         .when(
             crate::services::appearance::pointer_cursors_enabled(cx),
             |el| el.cursor_pointer(),
         )
-        .child(
-            Icon::new(IconName::Loader)
-                .small()
-                .text_color(muted_foreground),
-        )
+        .hover(|style| style.bg(cx.theme().list_hover))
         .child(
             div()
+                .min_w(px(0.))
+                .flex_1()
                 .text_xs()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(muted_foreground)
-                .child("Thinking"),
+                .child(if active { "Thinking…" } else { "Thinking" }),
         )
-        .child(afford)
+        .child(
+            Icon::new(IconName::ChevronRight)
+                .xsmall()
+                .text_color(muted_foreground)
+                .rotate(if expanded {
+                    gpui::percentage(0.25)
+                } else {
+                    gpui::percentage(0.0)
+                }),
+        )
 }
 
 /// Render plain text preserving newlines (user bubbles, thinking blocks). The
@@ -1043,6 +1073,11 @@ mod tests {
         assert_eq!(USER_BUBBLE_PADDING_X_PX, 16.0);
         assert_eq!(USER_BUBBLE_PADDING_Y_PX, 10.0);
         assert_eq!(USER_BUBBLE_RADIUS_PX, 16.0);
+    }
+
+    #[test]
+    fn persisted_reasoning_disclosures_start_collapsed() {
+        assert!(!ReasoningDisclosureState::default().expanded);
     }
 
     #[test]

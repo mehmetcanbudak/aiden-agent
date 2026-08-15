@@ -616,7 +616,7 @@ impl AppState {
         self.model_picker
             .update(cx, |picker, _| picker.ensure_pad_revision(runtime.as_ref()));
         let pinned = cx.default_global::<ModelPickerPins>().keys.clone();
-        let (open, tab, selection, items, all_items, trigger_item, label) = {
+        let (open, tab, selection, items, all_items, trigger_item, label, tooltip) = {
             let picker = self.model_picker.read(cx);
             let selection = picker.selection().map(str::to_string);
             let items = picker
@@ -631,8 +631,17 @@ impl AppState {
                 .cloned();
             let label = trigger_item
                 .as_ref()
-                .map(model_picker_item_summary)
+                .map(|item| model_display_name(item).to_string())
                 .unwrap_or_else(|| "Select model".into());
+            let tooltip = trigger_item
+                .as_ref()
+                .map(|item| {
+                    format!(
+                        "Selected model: {}. Choose model.",
+                        model_picker_item_summary(item)
+                    )
+                })
+                .unwrap_or_else(|| "Choose model (Local or Hosted)".into());
             (
                 picker.open,
                 picker.tab,
@@ -641,6 +650,7 @@ impl AppState {
                 all_items,
                 trigger_item,
                 label,
+                tooltip,
             )
         };
         let trigger_disabled = !model_picker_trigger_enabled(disabled, all_items.len());
@@ -648,13 +658,28 @@ impl AppState {
         let trigger = Button::new("composer-model-picker-trigger")
             .ghost()
             .small()
-            .label(label)
+            .min_w(px(0.))
+            .max_w(px(MODEL_PICKER_TRIGGER_MAX_WIDTH_PX))
+            .flex_shrink()
+            .overflow_hidden()
             .when_some(trigger_item.as_ref(), |button, item| {
-                button.icon(model_provider_icon(item))
+                button.child(model_provider_icon(item).small())
             })
+            .child(
+                div()
+                    .min_w(px(0.))
+                    .max_w(px(MODEL_PICKER_TRIGGER_LABEL_MAX_WIDTH_PX))
+                    .truncate()
+                    .child(label),
+            )
+            .child(
+                Icon::new(IconName::ChevronsUpDown)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
             .tab_stop(false)
             .disabled(trigger_disabled)
-            .tooltip("Choose model (Local or Hosted)")
+            .tooltip(tooltip)
             .on_click(cx.listener(|this, _event, window, cx| {
                 let runtime = cx
                     .try_global::<crate::chat::model_pad_picker::ModelPadRuntime>()
@@ -677,6 +702,8 @@ impl AppState {
                 }
             }));
         let trigger = div()
+            .min_w(px(0.))
+            .flex_shrink()
             .track_focus(&self.model_picker_trigger_focus)
             .tab_stop(!trigger_disabled)
             .focus(move |style| style.rounded_md().bg(trigger_focus_bg))
@@ -731,51 +758,117 @@ impl AppState {
         let pad_has_positioned_models = !pad_items.is_empty();
         let model_pad_settings_blocked = self.workspace_state.read(cx).git_busy;
         let pad = if pad_items.is_empty() {
-            v_flex()
+            let grid_size = EMPTY_MODEL_PAD_GRID_SIZE;
+            let dots = (0..grid_size * grid_size)
+                .map(|index| {
+                    let column = index % grid_size;
+                    let row = index / grid_size;
+                    div()
+                        .id(SharedString::from(format!("empty-model-pad-dot-{index}")))
+                        .absolute()
+                        .left(gpui::relative(model_grid_coordinate(column, grid_size)))
+                        .top(gpui::relative(model_grid_coordinate(row, grid_size)))
+                        .size(px(4.))
+                        .ml(px(-2.))
+                        .mt(px(-2.))
+                        .rounded_full()
+                        .bg(cx.theme().foreground.opacity(0.16))
+                })
+                .collect::<Vec<_>>();
+            div()
+                .relative()
                 .h(px(MODEL_PAD_SURFACE_SIZE_PX))
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .child(div().text_sm().child("Your Model Pad is empty"))
+                .w_full()
+                .overflow_hidden()
+                .rounded_lg()
+                .children(dots)
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Arrange a few models in Settings to use the spatial picker."),
+                        .absolute()
+                        .inset_0()
+                        .bg(cx.theme().popover.opacity(0.45)),
                 )
                 .child(
-                    div()
-                        .track_focus(&self.model_picker_empty_pad_focus)
-                        .tab_stop(true)
-                        .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
-                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                                if this.workspace_state.read(cx).git_busy {
-                                    return;
-                                }
-                                this.model_picker
-                                    .update(cx, |picker, _| picker.close_rollback());
-                                this.model_picker_input.update(cx, |input, cx| {
-                                    input.set_value("", window, cx);
-                                });
-                                this.open_model_pad_settings(window, cx);
-                                cx.stop_propagation();
-                            }
-                        }))
+                    v_flex()
+                        .relative()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .text_center()
+                        .px_8()
+                        .gap_2()
                         .child(
-                            Button::new("composer-model-pad-customize")
-                                .small()
-                                .tab_stop(false)
-                                .disabled(model_pad_settings_blocked)
-                                .label("Customize Model Pad")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.model_picker
-                                        .update(cx, |picker, _| picker.close_rollback());
-                                    this.model_picker_input.update(cx, |input, cx| {
-                                        input.set_value("", window, cx);
-                                    });
-                                    this.open_model_pad_settings(window, cx);
-                                })),
-                        ),
+                            div()
+                                .mb_1()
+                                .size(px(36.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .bg(cx.theme().muted)
+                                .child(
+                                    Icon::new(IconName::Settings2)
+                                        .small()
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child("Your Model Pad is empty"),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(208.))
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Choose a few models and arrange them by capability and pace in Settings."),
+                        )
+                        .child(
+                            div()
+                                .mt_2()
+                                .track_focus(&self.model_picker_empty_pad_focus)
+                                .tab_stop(true)
+                                .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
+                                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                        if this.workspace_state.read(cx).git_busy {
+                                            return;
+                                        }
+                                        this.model_picker
+                                            .update(cx, |picker, _| picker.close_rollback());
+                                        this.model_picker_input.update(cx, |input, cx| {
+                                            input.set_value("", window, cx);
+                                        });
+                                        this.open_model_pad_settings(window, cx);
+                                        cx.stop_propagation();
+                                    }
+                                }))
+                                .child(
+                                    Button::new("composer-model-pad-customize")
+                                        .small()
+                                        .tab_stop(false)
+                                        .disabled(model_pad_settings_blocked)
+                                        .label("Customize Model Pad")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.model_picker
+                                                .update(cx, |picker, _| picker.close_rollback());
+                                            this.model_picker_input.update(cx, |input, cx| {
+                                                input.set_value("", window, cx);
+                                            });
+                                            this.open_model_pad_settings(window, cx);
+                                        })),
+                                ),
+                        )
+                        .when(model_pad_settings_blocked, |el| {
+                            el.child(
+                                div()
+                                    .max_w(px(208.))
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Finish the current workspace operation first."),
+                            )
+                        }),
                 )
                 .into_any_element()
         } else {
@@ -1086,6 +1179,13 @@ impl AppState {
                         } else {
                             ""
                         };
+                        let row_title = model_display_name(&item).to_string();
+                        let row_subtitle = format!(
+                            "{} · {}{}",
+                            item.provider_label,
+                            deployment_label(&item),
+                            discovered
+                        );
                         h_flex()
                             .w_full()
                             .gap_1()
@@ -1100,15 +1200,33 @@ impl AppState {
                                     .ghost()
                                     .small()
                                     .tab_stop(false)
+                                    .min_w(px(0.))
                                     .flex_1()
                                     .w_full()
                                     .justify_start()
-                                    .icon(model_provider_icon(&item))
-                                    .label(format!(
-                                        "{}{}",
-                                        model_picker_item_summary(&item),
-                                        discovered
-                                    ))
+                                    .overflow_hidden()
+                                    .child(model_provider_icon(&item).small())
+                                    .child(
+                                        v_flex()
+                                            .min_w(px(0.))
+                                            .flex_1()
+                                            .items_start()
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .truncate()
+                                                    .text_sm()
+                                                    .child(row_title),
+                                            )
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .truncate()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(row_subtitle),
+                                            ),
+                                    )
                                     .on_hover({
                                         let key = key.clone();
                                         let picker = self.model_picker.clone();
@@ -1248,11 +1366,15 @@ impl AppState {
                                     .child(
                                         div()
                                             .text_sm()
+                                            .w_full()
+                                            .truncate()
                                             .child(model_display_name(&item).to_string()),
                                     )
                                     .child(
                                         div()
                                             .text_xs()
+                                            .w_full()
+                                            .truncate()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(format!(
                                                 "{} · {}",
@@ -1708,9 +1830,12 @@ fn model_picker_item_summary(item: &crate::chat::composer::ModelItem) -> String 
 const MODEL_PICKER_WIDTH_PX: f32 = 316.0;
 const MODEL_PICKER_DETAIL_GAP_PX: f32 = 8.0;
 const MODEL_PICKER_DETAIL_WIDTH_PX: f32 = 224.0;
+const MODEL_PICKER_TRIGGER_MAX_WIDTH_PX: f32 = 224.0;
+const MODEL_PICKER_TRIGGER_LABEL_MAX_WIDTH_PX: f32 = 168.0;
 const MODEL_PAD_POINT_SIZE_PX: f32 = 6.0;
 const MODEL_PAD_PUCK_SIZE_PX: f32 = 24.0;
 const MODEL_PAD_SURFACE_SIZE_PX: f32 = 300.0;
+const EMPTY_MODEL_PAD_GRID_SIZE: usize = 9;
 
 const fn model_picker_detail_left(picker_left: f32) -> f32 {
     picker_left + MODEL_PICKER_WIDTH_PX + MODEL_PICKER_DETAIL_GAP_PX
@@ -1916,6 +2041,21 @@ mod model_picker_surface_tests {
         assert_eq!(MODEL_PAD_POINT_SIZE_PX, 6.0);
         assert_eq!(MODEL_PAD_PUCK_SIZE_PX, 24.0);
         assert_eq!(MODEL_PAD_SURFACE_SIZE_PX, 300.0);
+        assert_eq!(EMPTY_MODEL_PAD_GRID_SIZE * EMPTY_MODEL_PAD_GRID_SIZE, 81);
+    }
+
+    #[test]
+    fn composer_trigger_uses_the_short_model_label_and_a_bounded_width() {
+        let mut item = crate::chat::composer::ModelItem::test_item(
+            "custom:ollama",
+            "fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4",
+        );
+        item.provider_label = "Ollama".into();
+        item.local = true;
+        assert_eq!(model_display_name(&item), item.model);
+        assert!(model_picker_item_summary(&item).contains(" · Ollama · Local"));
+        assert_eq!(MODEL_PICKER_TRIGGER_MAX_WIDTH_PX, 224.0);
+        assert_eq!(MODEL_PICKER_TRIGGER_LABEL_MAX_WIDTH_PX, 168.0);
     }
 
     #[test]

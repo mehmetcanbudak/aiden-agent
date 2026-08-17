@@ -38,6 +38,7 @@ use crate::services::voice::{
     VOICE_MIGRATION_NOTICE_KEY, VOICE_MODEL_KEY, VOICE_PROVIDER_KEY,
 };
 use crate::settings::SettingsSection;
+use crate::typography;
 use aiden_core::keybindings::{pretty_accelerator, GlobalShortcutState};
 
 #[derive(Clone)]
@@ -700,7 +701,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(theme.info.opacity(0.12))
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.info)
                         .child("An earlier build moved Voice to On-device. Configured OpenAI or Google Gemini transcription can now be selected here."),
                 )
@@ -713,7 +714,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(theme.danger.opacity(0.12))
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(message),
                 )
@@ -728,7 +729,7 @@ impl SettingsView {
                 .py_0p5()
                 .rounded_md()
                 .bg(theme.muted.opacity(0.14))
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.muted_foreground)
                 .child("Checking…")
                 .into_any_element(),
@@ -737,7 +738,7 @@ impl SettingsView {
                 .py_0p5()
                 .rounded_md()
                 .bg(theme.success.opacity(0.14))
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.success)
                 .child("Ready")
                 .into_any_element(),
@@ -750,14 +751,14 @@ impl SettingsView {
                         .py_0p5()
                         .rounded_md()
                         .bg(theme.danger.opacity(0.14))
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child("Unavailable"),
                 )
                 .child(
                     div()
                         .max_w(px(280.))
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(error.clone()),
                 )
@@ -808,13 +809,13 @@ impl SettingsView {
                         .py_0p5()
                         .rounded_md()
                         .bg(state_color.opacity(0.14))
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(state_color)
                         .child(state_label),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .font_weight(FontWeight::MEDIUM)
                         .child(binding),
                 )
@@ -862,7 +863,7 @@ impl SettingsView {
                             .py_0p5()
                             .rounded_md()
                             .bg(theme.muted.opacity(0.14))
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Checking…"),
                     )
@@ -876,7 +877,7 @@ impl SettingsView {
                             .py_0p5()
                             .rounded_md()
                             .bg(theme.success.opacity(0.14))
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.success)
                             .child("Granted"),
                     )
@@ -899,7 +900,7 @@ impl SettingsView {
                             .py_0p5()
                             .rounded_md()
                             .bg(theme.warning.opacity(0.14))
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.warning)
                             .child("Not granted"),
                     )
@@ -964,7 +965,7 @@ impl SettingsView {
         if state.models_manager_open {
             let model_list = match models {
                 None => div()
-                    .text_sm()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Loading models…")
                     .into_any_element(),
@@ -1007,13 +1008,13 @@ impl SettingsView {
                         .gap_1()
                         .child(
                             div()
-                                .text_lg()
+                                .text_size(typography::heading1(&theme))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Transcription Models"),
                         )
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child("Download and manage on-device models. Everything runs locally — no audio leaves your Mac."),
                         ),
@@ -1046,7 +1047,7 @@ impl SettingsView {
                             .bg(well)
                             .px_3()
                             .py_2()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .child("No on-device models yet. Download one to start transcribing locally."),
                     )
                     .child(
@@ -1066,7 +1067,7 @@ impl SettingsView {
                 "Active model",
                 "Used when you dictate with the on-device provider.",
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .font_weight(FontWeight::MEDIUM)
                     .child(active.map_or_else(
                         || "None selected".to_string(),
@@ -1145,7 +1146,12 @@ impl SettingsView {
                     h_flex()
                         .gap_2()
                         .items_center()
-                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(name))
+                        .child(
+                            div()
+                                .text_size(typography::small(&theme))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(name),
+                        )
                         .child(
                             div()
                                 .px_1p5()
@@ -1157,7 +1163,7 @@ impl SettingsView {
                                     theme.muted_foreground
                                 }
                                 .opacity(0.14))
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(if installed {
                                     theme.success
                                 } else {
@@ -1176,7 +1182,7 @@ impl SettingsView {
                                     .py_0p5()
                                     .rounded_md()
                                     .bg(theme.accent.opacity(0.16))
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.accent)
                                     .child("Dictation model"),
                             )
@@ -1184,7 +1190,7 @@ impl SettingsView {
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(format!(
                             "{size_label} · {languages_label}{}",
@@ -1206,7 +1212,7 @@ impl SettingsView {
                         .gap_0p5()
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.accent)
                                 .child(format!("Downloading… {}%", progress.unwrap_or(0))),
                         )

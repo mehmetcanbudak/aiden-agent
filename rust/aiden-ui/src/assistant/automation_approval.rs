@@ -19,6 +19,7 @@ use gpui_component::{
 };
 
 use crate::approvals::queue::PendingApproval;
+use crate::typography;
 
 /// The card title: proposals ask to be created, edits ask to be saved.
 pub fn automation_title(details: &serde_json::Value) -> &'static str {
@@ -325,10 +326,15 @@ pub fn automation_approval_card(
                 v_flex()
                     .w_full()
                     .gap_0p5()
-                    .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(name))
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(schedule),
                     ),
@@ -343,7 +349,7 @@ pub fn automation_approval_card(
                         .border_t_1()
                         .border_color(theme.border)
                         .pt_2()
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.muted_foreground)
                         .child(prompt),
                 )
@@ -362,14 +368,14 @@ pub fn automation_approval_card(
                             .bg(theme.background)
                             .border_1()
                             .border_color(theme.border)
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child(access),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(provider),
                     ),
@@ -377,7 +383,7 @@ pub fn automation_approval_card(
             .children(warnings.into_iter().map(|warning| {
                 div()
                     .w_full()
-                    .text_xs()
+                    .text_size(typography::small(theme))
                     .text_color(theme.danger)
                     .child(warning)
             }))
@@ -385,7 +391,7 @@ pub fn automation_approval_card(
     } else {
         v_flex()
             .w_full()
-            .text_xs()
+            .text_size(typography::small(theme))
             .text_color(theme.danger)
             .child("This automation request is invalid and cannot be confirmed.")
             .into_any_element()
@@ -418,7 +424,7 @@ pub fn automation_approval_card(
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(title),
                         ),

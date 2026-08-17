@@ -8,6 +8,7 @@
 //! `aiden_core::is_subagent_shell_approval_details`; malformed details render
 //! the fail-closed invalid state and can never be allowed.
 
+use crate::typography;
 use gpui::{
     div, px, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _,
@@ -135,7 +136,7 @@ pub fn shell_approval_section(
             .py_2()
             .border_1()
             .border_color(theme.danger)
-            .text_xs()
+            .text_size(typography::small(theme))
             .text_color(theme.danger)
             .child("This shell approval is invalid and cannot be allowed.")
             .into_any_element();
@@ -159,7 +160,7 @@ pub fn shell_approval_section(
                             div()
                                 .w(px(96.))
                                 .flex_shrink_0()
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.muted_foreground)
                                 .child(row.label),
                         )
@@ -167,7 +168,7 @@ pub fn shell_approval_section(
                             div()
                                 .flex_1()
                                 .min_w(px(0.))
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .font_family(if row.mono {
                                     theme.mono_font_family.clone()
                                 } else {
@@ -184,7 +185,7 @@ pub fn shell_approval_section(
                 .gap_1()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme.muted_foreground)
                         .child("Complete exact command"),
@@ -202,7 +203,7 @@ pub fn shell_approval_section(
                         .px_3()
                         .py_2()
                         .font_family(theme.mono_font_family.clone())
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.foreground)
                         .child(command),
                 ),
@@ -210,7 +211,7 @@ pub fn shell_approval_section(
         .child(
             div()
                 .w_full()
-                .text_xs()
+                .text_size(typography::small(theme))
                 .text_color(theme.muted_foreground)
                 .child(SHELL_REACH_WARNING),
         )

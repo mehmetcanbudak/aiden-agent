@@ -55,14 +55,45 @@ fn normalize_projected_text(value: &str) -> String {
     sanitize_subagent_snapshot_text(&normalized)
 }
 
+/// Bound a projected value to what the strict snapshot parser accepts.
+///
+/// Lengths are counted in characters, matching `safe_text` in the parser; the
+/// previous byte count both under-filled multi-byte values and could slice a
+/// character in half. Truncating can also create a new credential-like suffix
+/// out of a value that was safe whole, so the privacy projection re-runs after
+/// every cut and the result is re-measured, bounded by a few attempts.
+///
+/// Upstream additionally guards against leaving an unpaired high surrogate at
+/// the boundary; `chars()` cannot split a scalar value, so that has no analogue
+/// here.
 fn bounded(value: &str, maximum: usize, marker: &str) -> String {
-    let safe = normalize_projected_text(value);
-    let safe = safe.trim();
-    if safe.len() <= maximum {
-        return safe.to_string();
+    let mut safe = normalize_projected_text(value).trim().to_string();
+    let safe_marker = normalize_projected_text(marker);
+    let marker_len = safe_marker.chars().count();
+    let mut attempt = 0;
+    while attempt < 8 && safe.chars().count() > maximum {
+        let keep = maximum.saturating_sub(marker_len);
+        let prefix: String = safe.chars().take(keep).collect();
+        safe = normalize_projected_text(&format!("{prefix}{safe_marker}"))
+            .trim()
+            .to_string();
+        attempt += 1;
     }
-    let cut = maximum.saturating_sub(marker.len());
-    format!("{}{}", &safe[..cut], marker)
+    if safe.chars().count() <= maximum {
+        return safe;
+    }
+    safe_marker.chars().take(maximum).collect()
+}
+
+/// As [`bounded_single_line`], but a value that projects away entirely falls
+/// back to a fixed label rather than an empty string the parser would reject.
+fn bounded_required_single_line(value: &str, maximum: usize, fallback: &str) -> String {
+    let bounded = bounded_single_line(value, maximum);
+    if bounded.is_empty() {
+        fallback.to_string()
+    } else {
+        bounded
+    }
 }
 
 fn bounded_single_line(value: &str, maximum: usize) -> String {
@@ -174,14 +205,18 @@ impl SubagentEventProjector {
             revision: 1,
             role: aiden_core::subagent_runs::SubagentSnapshotRole::from_str(&request.role)
                 .expect("validated role"),
-            label: bounded_single_line(&request.label, 120),
-            task_preview: bounded_single_line(&request.task, MAX_SUBAGENT_TASK_PREVIEW_CHARS),
+            label: bounded_required_single_line(&request.label, 120, "Subagent task"),
+            task_preview: bounded_required_single_line(
+                &request.task,
+                MAX_SUBAGENT_TASK_PREVIEW_CHARS,
+                "Private task details redacted.",
+            ),
             state: SubagentRunState::Queued,
             activity: Some("Waiting for an execution slot".to_string()),
             started_at: now,
             updated_at: now,
             finished_at: None,
-            model_id: bounded_single_line(&self.input.model_id, 160),
+            model_id: bounded_required_single_line(&self.input.model_id, 160, "Unknown model"),
             turns: 0,
             tools: 0,
             tokens: 0,
@@ -488,6 +523,67 @@ fn now_millis() -> u64 {
 mod tests {
     use super::*;
 
+    /// The parser measures characters, so the bound must too. Counting bytes
+    /// both under-filled multi-byte values and could slice a character in half,
+    /// which panics.
+    #[test]
+    fn bounds_are_counted_in_characters_not_bytes() {
+        // Each character is 3 bytes, so a byte-based bound would cut at 10
+        // bytes -- inside the fourth character.
+        let value = "日本語のテキストです";
+        assert_eq!(value.chars().count(), 10);
+        assert!(value.len() > 10);
+        let whole = bounded(value, 10, "…");
+        assert_eq!(whole, value);
+        assert!(whole.chars().count() <= 10);
+
+        let cut = bounded(value, 5, "…");
+        assert!(cut.chars().count() <= 5);
+        assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn a_short_value_is_returned_whole() {
+        assert_eq!(bounded("hello", 32, "…"), "hello");
+        assert_eq!(bounded("  padded  ", 32, "…"), "padded");
+    }
+
+    #[test]
+    fn an_over_long_value_keeps_the_marker_within_the_bound() {
+        let long = "a".repeat(500);
+        let cut = bounded(&long, 24, "…");
+        assert_eq!(cut.chars().count(), 24);
+        assert!(cut.ends_with('…'));
+    }
+
+    /// A maximum smaller than the marker still has to satisfy the parser.
+    #[test]
+    fn a_bound_narrower_than_the_marker_is_still_respected() {
+        let cut = bounded(&"a".repeat(50), 1, "…");
+        assert!(cut.chars().count() <= 1);
+    }
+
+    #[test]
+    fn a_value_that_projects_away_falls_back_instead_of_going_empty() {
+        // Control characters normalize to spaces, which trim away entirely.
+        assert_eq!(
+            bounded_required_single_line("\u{1}\u{2}", 120, "Subagent task"),
+            "Subagent task"
+        );
+        assert_eq!(
+            bounded_required_single_line("Real label", 120, "Subagent task"),
+            "Real label"
+        );
+    }
+
+    #[test]
+    fn single_line_collapses_whitespace() {
+        assert_eq!(
+            bounded_single_line("two   lines\nhere", 64),
+            "two lines here"
+        );
+    }
+
     fn input() -> SubagentRunProjectorInput {
         SubagentRunProjectorInput {
             generation_id: "generation-1".to_string(),
@@ -566,9 +662,19 @@ mod tests {
         let snapshot = projector.snapshot()[0].clone();
         assert_eq!(snapshot.state, SubagentRunState::Failed);
         assert!(snapshot.error.is_some());
-        assert!(snapshot.latest_text.as_deref().unwrap().len() <= MAX_SUBAGENT_LATEST_TEXT_CHARS);
+        // Characters, not bytes: `safe_text` in the parser counts scalar
+        // values, and the ellipsis marker is three bytes wide.
         assert!(
-            snapshot.terminal_markdown.as_deref().unwrap().len()
+            snapshot.latest_text.as_deref().unwrap().chars().count()
+                <= MAX_SUBAGENT_LATEST_TEXT_CHARS
+        );
+        assert!(
+            snapshot
+                .terminal_markdown
+                .as_deref()
+                .unwrap()
+                .chars()
+                .count()
                 <= MAX_SUBAGENT_TERMINAL_MARKDOWN_CHARS
         );
     }

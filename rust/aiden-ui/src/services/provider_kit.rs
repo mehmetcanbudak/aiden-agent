@@ -1043,6 +1043,9 @@ pub async fn drive_stream(
     // The live activity timeline for this turn; every transition is pushed to
     // the foreground so the streaming bubble renders thinking/tool steps.
     let timeline_tx = tx.clone();
+    // UTF-16 length of the visible assistant text across every round of this
+    // generation; steps anchor to it.
+    let mut content_offset = 0usize;
     let mut projector = TimelineProjector::new(
         aiden_data::chat_store::new_uuid_like(),
         Box::new(move |timeline| {
@@ -1253,8 +1256,10 @@ pub async fn drive_stream(
             Some(system_prompt.clone()),
         );
         let mut reducer = StreamReducer::new();
-        // UTF-16 length of the visible assistant text so far; steps anchor to it.
-        let mut content_offset = 0usize;
+        // Each round gets a fresh reducer, so this round's text starts where the
+        // previous rounds left off. Steps anchor to the running total, not to
+        // the round-local length.
+        let round_base = content_offset;
         let mut interval =
             tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
         let mut cancelled = false;
@@ -1273,10 +1278,18 @@ pub async fn drive_stream(
                                 reducer.apply(event);
                                 // Offsets are UTF-16 code units. Measure only the appended
                                 // tail; rescanning the whole turn per delta is quadratic.
-                                if reducer.text.len() >= before && reducer.text.is_char_boundary(before) {
+                                if reducer.text.len() >= before
+                                    && reducer.text.is_char_boundary(before)
+                                {
                                     content_offset += reducer.text[before..].encode_utf16().count();
                                 } else {
-                                    content_offset = reducer.text.encode_utf16().count();
+                                    // The terminal message replaced this round's streamed
+                                    // text. Clamp any step anchored past the canonical end
+                                    // before later activity anchors beyond it.
+                                    let canonical =
+                                        round_base + reducer.text.encode_utf16().count();
+                                    projector.reconcile_content_offset(round_base, canonical);
+                                    content_offset = canonical;
                                 }
                                 projector.set_content_offset(content_offset);
                             }

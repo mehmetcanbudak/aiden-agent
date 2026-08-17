@@ -2135,15 +2135,17 @@ impl CodingToolExecutor {
         let supplied = required_str(&call.arguments, "path")?;
         let content = required_str(&call.arguments, "content")?;
         let full = resolve_writable_in_root(&self.workspace, &supplied).await?;
+        // A create counts as pure additions, so a missing file reads as empty.
+        let original = tokio::fs::read_to_string(&full).await.unwrap_or_default();
         tokio::fs::write(&full, content.as_bytes())
             .await
             .map_err(|_| {
                 ToolExecutionError::Message(format!("Path \"{supplied}\" could not be written."))
             })?;
-        Ok(ToolOutput::text(format!(
-            "Wrote {} chars to {supplied}.",
-            content.chars().count()
-        )))
+        Ok(ToolOutput {
+            text: format!("Wrote {} chars to {supplied}.", content.chars().count()),
+            details: Some(file_line_changes_details(&original, &content)),
+        })
     }
 
     async fn edit_file(&self, call: &ToolCall) -> Result<ToolOutput, ToolExecutionError> {
@@ -2171,7 +2173,10 @@ impl CodingToolExecutor {
             .map_err(|_| {
                 ToolExecutionError::Message(format!("Path \"{supplied}\" could not be written."))
             })?;
-        Ok(ToolOutput::text(format!("Edited {supplied}.")))
+        Ok(ToolOutput {
+            text: format!("Edited {supplied}."),
+            details: Some(file_line_changes_details(&original, &replaced)),
+        })
     }
 
     async fn run_command(&self, call: &ToolCall) -> Result<ToolOutput, ToolExecutionError> {
@@ -3005,6 +3010,18 @@ mod tests {
 const MAX_EXACT_LINE_DIFF_DISTANCE: usize = 2_048;
 /// Beyond this combined line count the exact search is not attempted at all.
 const MAX_EXACT_LINE_DIFF_LINES: usize = 200_000;
+
+/// The renderer-safe record a completed mutation reports: how much moved, never
+/// what moved (`FileMutationDetailsV1` in coding-tools.ts).
+pub fn file_line_changes_details(before: &str, after: &str) -> serde_json::Value {
+    let counts = line_change_counts(before, after);
+    serde_json::json!({
+        "kind": "file_line_changes",
+        "version": 1,
+        "additions": counts.additions,
+        "deletions": counts.deletions,
+    })
+}
 
 /// `textLines` — split on newlines, dropping the empty piece a trailing
 /// newline produces so "a\n" and "a" both count as one line.

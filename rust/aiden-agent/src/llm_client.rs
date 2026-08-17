@@ -720,6 +720,20 @@ pub fn safe_tool_descriptor(tool_name: &str, args: &serde_json::Value) -> SafeTo
 /// `GenerationTimelineProjector` — records tool and thinking activity as
 /// renderer-safe [`GenerationTimeline`] milestones and publishes a snapshot on
 /// every transition.
+/// `safeLineChanges` — accept only the exact record shape a first-party file
+/// mutation reports; anything else is ignored rather than half-trusted.
+fn safe_line_changes(details: &serde_json::Value) -> Option<aiden_core::LineChanges> {
+    let record = details.as_object()?;
+    if record.get("kind")?.as_str()? != "file_line_changes" || record.get("version")?.as_u64()? != 1
+    {
+        return None;
+    }
+    Some(aiden_core::LineChanges {
+        additions: record.get("additions")?.as_u64()?,
+        deletions: record.get("deletions")?.as_u64()?,
+    })
+}
+
 pub struct TimelineProjector {
     publish: Box<dyn Fn(&GenerationTimeline) + Send + Sync>,
     now: Box<dyn Fn() -> u64 + Send + Sync>,
@@ -905,17 +919,28 @@ impl TimelineProjector {
 
     /// `toolAwaitingApproval`.
     pub fn tool_awaiting_approval(&mut self, tool_call_id: &str) {
-        self.update_tool(tool_call_id, AgentStepStatus::AwaitingApproval, false);
+        self.update_tool(tool_call_id, AgentStepStatus::AwaitingApproval, false, None);
     }
 
     /// `toolRunning`.
     pub fn tool_running(&mut self, tool_call_id: &str) {
-        self.update_tool(tool_call_id, AgentStepStatus::Running, false);
+        self.update_tool(tool_call_id, AgentStepStatus::Running, false, None);
     }
 
     /// `toolFinished` — terminal status for one tool step.
     pub fn tool_finished(&mut self, tool_call_id: &str, status: ToolFinishStatus) {
-        self.update_tool(tool_call_id, status.into(), true);
+        self.update_tool(tool_call_id, status.into(), true, None);
+    }
+
+    /// As [`Self::tool_finished`], carrying the renderer-safe details the tool
+    /// reported. Only a completed first-party mutation's line totals are kept.
+    pub fn tool_finished_with_details(
+        &mut self,
+        tool_call_id: &str,
+        status: ToolFinishStatus,
+        details: Option<&serde_json::Value>,
+    ) {
+        self.update_tool(tool_call_id, status.into(), true, details);
     }
 
     /// `finish` — settle open reasoning and any in-flight steps, then set the
@@ -975,7 +1000,13 @@ impl TimelineProjector {
         step.finished_at = Some(timestamp);
     }
 
-    fn update_tool(&mut self, tool_call_id: &str, status: AgentStepStatus, terminal: bool) {
+    fn update_tool(
+        &mut self,
+        tool_call_id: &str,
+        status: AgentStepStatus,
+        terminal: bool,
+        details: Option<&serde_json::Value>,
+    ) {
         if self.timeline.status != GenerationTimelineStatus::Running {
             return;
         }
@@ -993,6 +1024,11 @@ impl TimelineProjector {
         step.updated_at = timestamp;
         if terminal {
             step.finished_at = Some(timestamp);
+        }
+        if let Some(changes) = details.and_then(safe_line_changes) {
+            if changes.is_reportable(&step.tool_name, step.status) {
+                step.line_changes = Some(changes);
+            }
         }
         self.emit();
     }

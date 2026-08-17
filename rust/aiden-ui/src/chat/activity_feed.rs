@@ -22,6 +22,16 @@ use std::time::Duration;
 const TICKER_ROWS: usize = 3;
 const TICKER_ROW_HEIGHT_PX: f32 = 24.0;
 
+/// Type scale mirrored from Electron's semantic tokens in `renderer/styles.css`.
+/// At the default 14px `--ui-font-size`, `--text-small`/`--text-small-strong`
+/// resolve to 13px and `--text-mini` to 11px. The summary sits one step above
+/// the detail rows so a collapsed feed reads as a heading over its own trail;
+/// within a row the verb is medium and its object normal.
+const SUMMARY_TEXT_PX: f32 = 13.0;
+const DETAIL_TEXT_PX: f32 = 11.0;
+/// Electron's trail row is `min-h-5`.
+const TRAIL_ROW_MIN_HEIGHT_PX: f32 = 20.0;
+
 /// Render-owned disclosure state for one generation timeline. The state is
 /// keyed by `generation_id`, so a new turn starts collapsed while a user's
 /// explicit open/close choice survives ordinary streaming re-renders.
@@ -445,7 +455,8 @@ pub fn timeline_feed(
         .when(issues > 0, |el| {
             el.child(
                 div()
-                    .text_xs()
+                    .text_size(px(SUMMARY_TEXT_PX))
+                    .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(theme.warning)
                     .child(if issues == 1 {
                         "1 issue".to_string()
@@ -508,7 +519,8 @@ fn summary_element(summary: &str, animate: bool, text_color: gpui::Hsla) -> gpui
     let base = div()
         .flex_1()
         .min_w(px(0.))
-        .text_xs()
+        .text_size(px(SUMMARY_TEXT_PX))
+        .font_weight(gpui::FontWeight::MEDIUM)
         .text_color(text_color)
         .child(summary.to_string());
     if animate {
@@ -563,7 +575,8 @@ fn ticker_row(
                 .min_w(px(0.))
                 .flex_1()
                 .truncate()
-                .text_xs()
+                .text_size(px(DETAIL_TEXT_PX))
+                .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(text_color)
                 .child(line.verb),
         )
@@ -572,7 +585,8 @@ fn ticker_row(
                 div()
                     .max_w(px(240.))
                     .truncate()
-                    .text_xs()
+                    .text_size(px(DETAIL_TEXT_PX))
+                    .font_weight(gpui::FontWeight::NORMAL)
                     .text_color(object_color)
                     .child(object),
             )
@@ -681,6 +695,7 @@ fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl In
     h_flex()
         .id(ElementId::Name(step_id))
         .w_full()
+        .min_h(px(TRAIL_ROW_MIN_HEIGHT_PX))
         .gap_1p5()
         .items_center()
         .px_1p5()
@@ -716,11 +731,18 @@ fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl In
                 .flex_1()
                 .min_w(px(0.))
                 .gap_1()
-                .child(div().text_xs().text_color(text_color).child(line.verb))
+                .child(
+                    div()
+                        .text_size(px(DETAIL_TEXT_PX))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(text_color)
+                        .child(line.verb),
+                )
                 .when_some(line.object, |el, object| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(px(DETAIL_TEXT_PX))
+                            .font_weight(gpui::FontWeight::NORMAL)
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(object),
@@ -1025,6 +1047,32 @@ mod tests {
         assert!(source.contains("state.open = !state.open"));
         assert!(source.contains("timeline.steps.iter().skip(ticker_start)"));
         assert!(source.contains("let ticker_count = timeline.steps.len().min(TICKER_ROWS)"));
+    }
+
+    #[test]
+    fn typography_keeps_summaries_above_compact_details() {
+        // Electron resolves `--text-small-strong` to 13px and `--text-mini` to
+        // 11px at the default 14px UI font size. A flat scale here is exactly
+        // the regression upstream's "restore agent activity hierarchy" fixed.
+        assert_eq!(SUMMARY_TEXT_PX, 13.0);
+        assert_eq!(DETAIL_TEXT_PX, 11.0);
+        const { assert!(SUMMARY_TEXT_PX > DETAIL_TEXT_PX) };
+
+        // Count only the render half; this module's own assertions repeat these
+        // literals, so `include_str!` over the whole file would count itself.
+        let source = include_str!("activity_feed.rs");
+        let render = source.split("#[cfg(test)]").next().expect("render source");
+        // The summary and the issue count read as one heading over the trail.
+        assert_eq!(render.matches(".text_size(px(SUMMARY_TEXT_PX))").count(), 2);
+        // Ticker and trail rows each carry a verb and an object.
+        assert_eq!(render.matches(".text_size(px(DETAIL_TEXT_PX))").count(), 4);
+        // Within a row the verb carries the weight and its object stays normal.
+        assert_eq!(
+            render
+                .matches(".font_weight(gpui::FontWeight::NORMAL)")
+                .count(),
+            2
+        );
     }
 
     #[test]

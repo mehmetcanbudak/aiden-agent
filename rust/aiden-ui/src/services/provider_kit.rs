@@ -2202,6 +2202,7 @@ mod tests {
             target: None,
             detail: detail.map(str::to_string),
             content_offset: None,
+            line_changes: None,
         })
     }
 

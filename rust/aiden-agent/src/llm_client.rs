@@ -845,6 +845,7 @@ impl TimelineProjector {
             content_offset: Some(self.content_offset),
             target: descriptor.target,
             detail: descriptor.detail,
+            line_changes: None,
         };
         self.step_index
             .insert(tool_call_id.to_string(), self.timeline.steps.len());

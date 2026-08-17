@@ -313,7 +313,8 @@ pub fn parse_generation_timeline(
         // Version 1 predates reasoning steps, so it may only contain tool steps.
         match step.get("kind").and_then(Value::as_str) {
             Some("tool") => {
-                let parsed = parse_tool_step(step, index, content_offset)?;
+                let parsed =
+                    parse_tool_step(step, index, content_offset, version == current_version)?;
                 steps.push(aiden_core::AgentStep::Tool(parsed));
             }
             Some("thinking") if version != 1 => {
@@ -384,6 +385,7 @@ fn parse_tool_step(
     step: &Map<String, Value>,
     index: usize,
     content_offset: Option<usize>,
+    allow_line_changes: bool,
 ) -> Option<aiden_core::AgentToolStep> {
     let id = step.get("id").and_then(Value::as_str)?;
     let tool_call_id = step.get("toolCallId").and_then(Value::as_str)?;
@@ -421,6 +423,27 @@ fn parse_tool_step(
             return None;
         }
     }
+    // Only the current version records line totals, and only a completed
+    // first-party mutation may carry them. A malformed record rejects the step
+    // rather than being silently dropped.
+    let line_changes = match step.get("lineChanges") {
+        None | Some(Value::Null) => None,
+        Some(raw) => {
+            if !allow_line_changes {
+                return None;
+            }
+            let record = raw.as_object()?;
+            let changes = aiden_core::LineChanges {
+                additions: record.get("additions")?.as_u64()?,
+                deletions: record.get("deletions")?.as_u64()?,
+            };
+            if !changes.is_reportable(tool_name, status) {
+                return None;
+            }
+            Some(changes)
+        }
+    };
+
     Some(aiden_core::AgentToolStep {
         id: id.to_string(),
         order: index,
@@ -432,6 +455,7 @@ fn parse_tool_step(
         updated_at: step.get("updatedAt")?.as_u64()?,
         finished_at: step.get("finishedAt").and_then(Value::as_u64),
         content_offset,
+        line_changes,
         target: step
             .get("target")
             .and_then(Value::as_str)

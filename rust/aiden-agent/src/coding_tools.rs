@@ -2996,3 +2996,168 @@ mod tests {
         assert!(matches.text.contains("b.txt:1: alphabet"));
     }
 }
+
+// ===========================================================================
+// File mutation line totals (coding-tools.ts `lineChangeCounts`)
+// ===========================================================================
+
+/// Beyond this edit distance the exact search is abandoned for the bound below.
+const MAX_EXACT_LINE_DIFF_DISTANCE: usize = 2_048;
+/// Beyond this combined line count the exact search is not attempted at all.
+const MAX_EXACT_LINE_DIFF_LINES: usize = 200_000;
+
+/// `textLines` — split on newlines, dropping the empty piece a trailing
+/// newline produces so "a\n" and "a" both count as one line.
+fn text_lines(text: &str) -> Vec<&str> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    lines
+}
+
+/// Count a shortest line edit script without exposing file contents.
+///
+/// Trims the common prefix and suffix, then runs Myers' shortest-edit-path over
+/// the unmatched middle, where the path length D is exactly additions +
+/// deletions. Pathological whole-file rewrites fall back to counting the middle
+/// wholesale rather than searching an enormous space.
+pub fn line_change_counts(before: &str, after: &str) -> aiden_core::LineChanges {
+    let before_lines = text_lines(before);
+    let after_lines = text_lines(after);
+
+    let mut prefix = 0usize;
+    while prefix < before_lines.len()
+        && prefix < after_lines.len()
+        && before_lines[prefix] == after_lines[prefix]
+    {
+        prefix += 1;
+    }
+    let mut before_end = before_lines.len();
+    let mut after_end = after_lines.len();
+    while before_end > prefix
+        && after_end > prefix
+        && before_lines[before_end - 1] == after_lines[after_end - 1]
+    {
+        before_end -= 1;
+        after_end -= 1;
+    }
+
+    let old_lines = &before_lines[prefix..before_end];
+    let new_lines = &after_lines[prefix..after_end];
+    let old_count = old_lines.len();
+    let new_count = new_lines.len();
+    let bounded = aiden_core::LineChanges {
+        additions: new_count as u64,
+        deletions: old_count as u64,
+    };
+    if old_count == 0 || new_count == 0 {
+        return bounded;
+    }
+
+    let max_distance = old_count + new_count;
+    if max_distance > MAX_EXACT_LINE_DIFF_LINES {
+        return bounded;
+    }
+    let offset = max_distance as isize;
+    let mut furthest = vec![0isize; max_distance * 2 + 1];
+    for distance in 0..=max_distance.min(MAX_EXACT_LINE_DIFF_DISTANCE) {
+        let distance_i = distance as isize;
+        let mut diagonal = -distance_i;
+        while diagonal <= distance_i {
+            let index = (offset + diagonal) as usize;
+            let mut old_index = if diagonal == -distance_i
+                || (diagonal != distance_i && furthest[index - 1] < furthest[index + 1])
+            {
+                furthest[index + 1]
+            } else {
+                furthest[index - 1] + 1
+            };
+            let mut new_index = old_index - diagonal;
+            while (old_index as usize) < old_count
+                && (new_index as usize) < new_count
+                && old_lines[old_index as usize] == new_lines[new_index as usize]
+            {
+                old_index += 1;
+                new_index += 1;
+            }
+            furthest[index] = old_index;
+            if old_index as usize >= old_count && new_index as usize >= new_count {
+                // D = additions + deletions, and additions - deletions is fixed
+                // by the length difference, so both fall out directly.
+                let old_i = old_count as isize;
+                let new_i = new_count as isize;
+                return aiden_core::LineChanges {
+                    additions: ((distance_i - old_i + new_i) / 2) as u64,
+                    deletions: ((distance_i + old_i - new_i) / 2) as u64,
+                };
+            }
+            diagonal += 2;
+        }
+    }
+    bounded
+}
+
+#[cfg(test)]
+mod line_change_tests {
+    use super::*;
+
+    #[test]
+    fn a_trailing_newline_does_not_count_as_a_line() {
+        assert_eq!(text_lines(""), Vec::<&str>::new());
+        assert_eq!(text_lines("a\n"), vec!["a"]);
+        assert_eq!(text_lines("a"), vec!["a"]);
+        assert_eq!(text_lines("a\nb\n"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn an_unchanged_file_reports_nothing() {
+        let counts = line_change_counts("a\nb\nc\n", "a\nb\nc\n");
+        assert_eq!(counts.additions, 0);
+        assert_eq!(counts.deletions, 0);
+    }
+
+    #[test]
+    fn pure_insertions_and_deletions_are_exact() {
+        let added = line_change_counts("a\nc\n", "a\nb\nc\n");
+        assert_eq!((added.additions, added.deletions), (1, 0));
+
+        let removed = line_change_counts("a\nb\nc\n", "a\nc\n");
+        assert_eq!((removed.additions, removed.deletions), (0, 1));
+
+        let created = line_change_counts("", "a\nb\n");
+        assert_eq!((created.additions, created.deletions), (2, 0));
+
+        let emptied = line_change_counts("a\nb\n", "");
+        assert_eq!((emptied.additions, emptied.deletions), (0, 2));
+    }
+
+    #[test]
+    fn a_replaced_line_counts_on_both_sides() {
+        let counts = line_change_counts("a\nb\nc\n", "a\nB\nc\n");
+        assert_eq!((counts.additions, counts.deletions), (1, 1));
+    }
+
+    /// The middle is what gets searched, so a shared prefix and suffix keep a
+    /// small edit small no matter how large the file around it is.
+    #[test]
+    fn common_prefix_and_suffix_are_trimmed_before_searching() {
+        let before = format!("{}x\n{}", "same\n".repeat(500), "tail\n".repeat(500));
+        let after = format!("{}y\n{}", "same\n".repeat(500), "tail\n".repeat(500));
+        let counts = line_change_counts(&before, &after);
+        assert_eq!((counts.additions, counts.deletions), (1, 1));
+    }
+
+    /// A rewrite past the bound still reports something truthful about size
+    /// rather than searching an enormous edit space.
+    #[test]
+    fn a_pathological_rewrite_falls_back_to_the_bound() {
+        let before: String = (0..3_000).map(|i| format!("old-{i}\n")).collect();
+        let after: String = (0..3_000).map(|i| format!("new-{i}\n")).collect();
+        let counts = line_change_counts(&before, &after);
+        assert_eq!((counts.additions, counts.deletions), (3_000, 3_000));
+    }
+}

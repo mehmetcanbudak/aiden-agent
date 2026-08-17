@@ -544,6 +544,58 @@ fn summary_element(
     }
 }
 
+/// `compactLineCount` — keep a large total readable without widening the row.
+fn compact_line_count(value: u64) -> String {
+    fn trim_tenth(value: f64, suffix: &str) -> String {
+        if value < 10.0 {
+            let rendered = format!("{value:.1}");
+            let rendered = rendered.strip_suffix(".0").unwrap_or(&rendered).to_string();
+            format!("{rendered}{suffix}")
+        } else {
+            format!("{}{suffix}", value.round() as u64)
+        }
+    }
+    if value < 1_000 {
+        return value.to_string();
+    }
+    if value < 1_000_000 {
+        return trim_tenth(value as f64 / 1_000.0, "k");
+    }
+    trim_tenth(value as f64 / 1_000_000.0, "m")
+}
+
+/// The `+N −M` pair a completed file mutation reports. Renders nothing when the
+/// edit moved no lines, matching the renderer.
+fn line_changes_element(
+    changes: aiden_core::LineChanges,
+    theme: &gpui_component::theme::Theme,
+) -> Option<impl IntoElement> {
+    if changes.additions == 0 && changes.deletions == 0 {
+        return None;
+    }
+    // Electron sizes this at 0.9em of the surrounding detail row.
+    let size = typography::mini(theme) * 0.9;
+    Some(
+        h_flex()
+            .ml_1()
+            .flex_none()
+            .gap_1()
+            .font_family("monospace")
+            .text_size(size)
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .child(
+                div()
+                    .text_color(theme.success)
+                    .child(format!("+{}", compact_line_count(changes.additions))),
+            )
+            .child(
+                div()
+                    .text_color(theme.danger)
+                    .child(format!("\u{2212}{}", compact_line_count(changes.deletions))),
+            ),
+    )
+}
+
 /// A compact live ticker row. Older rows are intentionally dimmer than the
 /// newest row; this is the GPUI equivalent of Electron's top fade mask while
 /// keeping the row count and layout bounded even for very long turns.
@@ -557,6 +609,12 @@ fn ticker_row(
 ) -> gpui::AnyElement {
     let theme = cx.theme().clone();
     let line = activity_line(step);
+    let line_changes = match step {
+        AgentStep::Tool(tool) => tool
+            .line_changes
+            .filter(|changes| changes.is_reportable(&tool.tool_name, tool.status)),
+        AgentStep::Thinking(_) => None,
+    };
     let text_color = match line.tone {
         StepTone::Error => theme.danger,
         StepTone::Warning => theme.warning,
@@ -599,7 +657,11 @@ fn ticker_row(
                     .text_color(object_color)
                     .child(object),
             )
-        });
+        })
+        .when_some(
+            line_changes.and_then(|changes| line_changes_element(changes, &theme)),
+            |el, changes| el.child(changes),
+        );
     if active && !motion_reduced {
         row.with_animation(
             ElementId::Name(SharedString::from(format!(
@@ -674,6 +736,12 @@ fn claim_warning(theme: gpui_component::theme::Theme, scope: &str) -> impl IntoE
 fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl IntoElement {
     let theme = cx.theme().clone();
     let line = activity_line(step);
+    let line_changes = match step {
+        AgentStep::Tool(tool) => tool
+            .line_changes
+            .filter(|changes| changes.is_reportable(&tool.tool_name, tool.status)),
+        AgentStep::Thinking(_) => None,
+    };
     let active = live && is_active_step(step);
     let icon = if active {
         Some(IconName::LoaderCircle)
@@ -758,7 +826,11 @@ fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl In
                             .truncate()
                             .child(object),
                     )
-                }),
+                })
+                .when_some(
+                    line_changes.and_then(|changes| line_changes_element(changes, &theme)),
+                    |el, changes| el.child(changes),
+                ),
         )
 }
 
@@ -790,6 +862,7 @@ mod tests {
             target: target.map(str::to_string),
             detail: detail.map(str::to_string),
             content_offset: None,
+            line_changes: None,
         })
     }
 
@@ -1060,6 +1133,41 @@ mod tests {
         assert!(source.contains("state.open = !state.open"));
         assert!(source.contains("timeline.steps.iter().skip(ticker_start)"));
         assert!(source.contains("let ticker_count = timeline.steps.len().min(TICKER_ROWS)"));
+    }
+
+    #[test]
+    fn line_counts_stay_narrow_as_they_grow() {
+        assert_eq!(compact_line_count(0), "0");
+        assert_eq!(compact_line_count(999), "999");
+        assert_eq!(compact_line_count(1_000), "1k");
+        assert_eq!(compact_line_count(1_500), "1.5k");
+        assert_eq!(compact_line_count(9_949), "9.9k");
+        assert_eq!(compact_line_count(10_000), "10k");
+        assert_eq!(compact_line_count(999_999), "1000k");
+        assert_eq!(compact_line_count(1_000_000), "1m");
+        assert_eq!(compact_line_count(2_500_000), "2.5m");
+        assert_eq!(compact_line_count(12_000_000), "12m");
+    }
+
+    /// Only a completed write_file/edit_file may report totals, and only within
+    /// the renderer's bounds -- anything else is not shown at all.
+    #[test]
+    fn only_completed_first_party_mutations_report_line_totals() {
+        let changes = aiden_core::LineChanges {
+            additions: 3,
+            deletions: 1,
+        };
+        assert!(changes.is_reportable("write_file", AgentStepStatus::Completed));
+        assert!(changes.is_reportable("edit_file", AgentStepStatus::Completed));
+        assert!(!changes.is_reportable("run_command", AgentStepStatus::Completed));
+        assert!(!changes.is_reportable("edit_file", AgentStepStatus::Failed));
+        assert!(!changes.is_reportable("edit_file", AgentStepStatus::Running));
+
+        let absurd = aiden_core::LineChanges {
+            additions: aiden_core::MAX_LINE_CHANGE_COUNT + 1,
+            deletions: 0,
+        };
+        assert!(!absurd.is_reportable("edit_file", AgentStepStatus::Completed));
     }
 
     #[test]

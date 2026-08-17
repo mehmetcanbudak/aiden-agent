@@ -596,10 +596,36 @@ pub struct AgentToolStep {
     /// UTF-16 offset into the visible assistant text when this activity began.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_offset: Option<usize>,
+    /// Renderer-safe line totals reported by a completed first-party file
+    /// mutation. Never file contents — only how much moved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_changes: Option<LineChanges>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+/// Lines added and removed by one file mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LineChanges {
+    pub additions: u64,
+    pub deletions: u64,
+}
+
+/// Upper bound on a reported line total; anything larger is treated as corrupt.
+pub const MAX_LINE_CHANGE_COUNT: u64 = 100_000_000;
+
+impl LineChanges {
+    /// Only a completed first-party mutation may report line totals, and only
+    /// within the renderer's bounds.
+    pub fn is_reportable(&self, tool_name: &str, status: AgentStepStatus) -> bool {
+        matches!(tool_name, "write_file" | "edit_file")
+            && status == AgentStepStatus::Completed
+            && self.additions <= MAX_LINE_CHANGE_COUNT
+            && self.deletions <= MAX_LINE_CHANGE_COUNT
+    }
 }
 
 /// One uninterrupted stretch of model reasoning between tool calls.
@@ -1187,6 +1213,7 @@ mod tests {
                     target: Some("src/main.rs".into()),
                     detail: Some("pattern: foo".into()),
                     content_offset: None,
+                    line_changes: None,
                 }),
                 AgentStep::Thinking(AgentThinkingStep {
                     id: "think-1".into(),

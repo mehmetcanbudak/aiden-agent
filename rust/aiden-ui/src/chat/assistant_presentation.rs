@@ -201,6 +201,7 @@ mod tests {
             content_offset,
             target: None,
             detail: None,
+            line_changes: None,
         })
     }
 

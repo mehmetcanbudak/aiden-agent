@@ -712,6 +712,7 @@ mod tests {
                 target: None,
                 detail: None,
                 content_offset: None,
+                line_changes: None,
             })],
             claim_check: None,
         }

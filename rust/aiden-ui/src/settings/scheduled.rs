@@ -659,6 +659,7 @@ impl SettingsView {
                 )
             })
             .child(settings_fieldset(
+                typography::large_strong(&theme),
                 "Scheduled tasks",
                 vec![
                     enabled,
@@ -671,7 +672,12 @@ impl SettingsView {
                 ],
                 well,
             ))
-            .child(settings_fieldset("Current tasks", task_rows, well))
+            .child(settings_fieldset(
+                typography::large_strong(&theme),
+                "Current tasks",
+                task_rows,
+                well,
+            ))
             .when_some(state.adding.as_ref(), |view, draft| {
                 view.child(self.schedule_editor(draft, cx))
             })

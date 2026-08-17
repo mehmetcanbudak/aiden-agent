@@ -13,6 +13,7 @@ use gpui_component::{text::TextView, v_flex, ActiveTheme};
 
 use crate::assistant::view_state::{AssistantMessage, AssistantRole, AssistantViewState};
 use crate::chat::markdown::markdown_with_math_fallback;
+use crate::typography;
 
 /// The speaker label for the log (`You` / `Aiden`).
 #[allow(dead_code)] // renderer-contract port; exercised by unit tests
@@ -69,7 +70,7 @@ pub fn render_thread(
                     .py_2()
                     .rounded_md()
                     .bg(danger.opacity(0.12))
-                    .text_xs()
+                    .text_size(px(14.))
                     .text_color(danger)
                     .child(state.error.clone().unwrap_or_default()),
             )
@@ -144,7 +145,7 @@ fn render_assistant_card(
                     el.child(
                         div()
                             .w_full()
-                            .text_xs()
+                            .text_size(px(12.))
                             .text_color(theme.muted_foreground)
                             .child(prewrap(&thinking)),
                     )
@@ -152,7 +153,7 @@ fn render_assistant_card(
                 .when(placeholder, |el| {
                     el.child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(theme))
                             .text_color(theme.muted_foreground)
                             .child("…"),
                     )

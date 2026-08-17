@@ -957,7 +957,7 @@ impl AssistantPanel {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(px(14.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Aiden"),
                     ),
@@ -968,7 +968,7 @@ impl AssistantPanel {
                     .items_center()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(12.))
                             .text_color(theme.muted_foreground)
                             .child(format!("{} MCP tools", snapshot.mcp_tool_count)),
                     )
@@ -1036,7 +1036,7 @@ impl AssistantPanel {
                     .child(
                         div()
                             .px_1()
-                            .text_xs()
+                            .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Try asking"),
@@ -1068,7 +1068,7 @@ impl AssistantPanel {
                         .child(
                             div()
                                 .px_1()
-                                .text_xs()
+                                .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme.muted_foreground)
                                 .child("Recent automations"),
@@ -1082,7 +1082,7 @@ impl AssistantPanel {
                                 .bg(theme.list)
                                 .border_1()
                                 .border_color(theme.border)
-                                .text_sm()
+                                .text_size(px(14.))
                                 .truncate()
                                 .child(format!("{} · {}", task.name, task.cron))
                         })),
@@ -1183,7 +1183,7 @@ impl AssistantPanel {
                 .py_2()
                 .border_1()
                 .border_color(theme.danger)
-                .text_xs()
+                .text_size(px(12.))
                 .text_color(theme.danger)
                 .child("This approval request is invalid and cannot be confirmed.")
                 .into_any_element(),
@@ -1225,7 +1225,7 @@ impl AssistantPanel {
                             div()
                                 .px_1p5()
                                 .pb_1()
-                                .text_xs()
+                                .text_size(px(12.))
                                 .text_color(theme.muted_foreground)
                                 .child(message),
                         )

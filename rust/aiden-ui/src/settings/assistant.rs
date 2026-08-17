@@ -150,8 +150,18 @@ impl SettingsView {
         v_flex()
             .id("assistant-section")
             .w_full()
-            .child(settings_fieldset("Open Aiden", vec![shortcut], well))
-            .child(settings_fieldset("How Aiden works", facts, well))
+            .child(settings_fieldset(
+                typography::large_strong(&theme),
+                "Open Aiden",
+                vec![shortcut],
+                well,
+            ))
+            .child(settings_fieldset(
+                typography::large_strong(&theme),
+                "How Aiden works",
+                facts,
+                well,
+            ))
     }
 }
 

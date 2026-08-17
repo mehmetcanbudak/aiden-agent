@@ -34,6 +34,7 @@ use gpui_component::{
 use crate::controls::Switch;
 
 use super::{settings_fieldset, SettingsServices, SettingsView};
+use crate::typography;
 
 /// Local catalog metadata (titles/descriptions) for the 26 commands. The
 /// *bindings* themselves always come from `aiden_core` (the catalog defaults +
@@ -589,6 +590,7 @@ impl SettingsView {
             .id(id)
             .w_full()
             .child(settings_fieldset(
+                typography::large_strong(cx.theme()),
                 title,
                 rendered,
                 crate::services::appearance::well_surface(cx),

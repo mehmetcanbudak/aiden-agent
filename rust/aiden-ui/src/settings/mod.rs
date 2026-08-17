@@ -48,6 +48,7 @@ pub(crate) mod skills;
 mod voice;
 mod web_search;
 
+use crate::typography;
 use providers::enrich_provider_row;
 
 pub use catalog::SettingsDestinationId as SettingsSection;
@@ -71,19 +72,26 @@ impl EventEmitter<SettingsEvent> for SettingsView {}
 
 const SETTINGS_CONTENT_MAX_WIDTH_PX: f32 = 672.0;
 pub(crate) const SETTINGS_CARD_RADIUS_PX: f32 = 12.0;
-pub(crate) const SETTINGS_SECTION_TITLE_PX: f32 = 16.0;
-pub(crate) const SETTINGS_TEXT_PX: f32 = 14.0;
-pub(crate) const SETTINGS_SMALL_TEXT_PX: f32 = 13.0;
+// The settings type sizes now come from `crate::typography`: ui.tsx renders a
+// FieldSet title as text-large-strong and a Field label/description as
+// text-strong/text-small, all of which track --ui-font-size.
 
 pub(crate) fn settings_fieldset(
+    title_size: gpui::Pixels,
     title: &'static str,
     rows: Vec<AnyElement>,
     well_surface: Hsla,
 ) -> AnyElement {
-    settings_fieldset_with_title(div().child(title).into_any_element(), rows, well_surface)
+    settings_fieldset_with_title(
+        title_size,
+        div().child(title).into_any_element(),
+        rows,
+        well_surface,
+    )
 }
 
 pub(crate) fn settings_fieldset_with_title(
+    title_size: gpui::Pixels,
     title: AnyElement,
     rows: Vec<AnyElement>,
     well_surface: Hsla,
@@ -95,7 +103,7 @@ pub(crate) fn settings_fieldset_with_title(
             div()
                 .mb_3()
                 .px_4()
-                .text_size(gpui::px(SETTINGS_SECTION_TITLE_PX))
+                .text_size(title_size)
                 .font_weight(FontWeight::MEDIUM)
                 .child(title),
         )
@@ -136,7 +144,7 @@ pub(crate) fn settings_field(
                         .min_w(gpui::px(0.0))
                         .child(
                             div()
-                                .text_size(gpui::px(SETTINGS_TEXT_PX))
+                                .text_size(typography::regular(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(label),
                         )
@@ -144,7 +152,7 @@ pub(crate) fn settings_field(
                             column.child(
                                 div()
                                     .mt(gpui::px(2.0))
-                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.secondary_foreground)
                                     .child(description),
                             )
@@ -723,7 +731,7 @@ impl SettingsView {
                         .mx_auto()
                         .px_4()
                         .py_2()
-                        .text_sm()
+                        .text_size(typography::small(theme))
                         .text_color(theme.danger)
                         .child(message),
                 )

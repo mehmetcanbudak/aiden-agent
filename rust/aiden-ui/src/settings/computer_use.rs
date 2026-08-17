@@ -486,6 +486,7 @@ impl SettingsView {
             .id("computer-use-section")
             .w_full()
             .child(settings_fieldset_with_title(
+                typography::large_strong(&theme),
                 h_flex()
                     .items_center()
                     .gap_2()
@@ -500,7 +501,12 @@ impl SettingsView {
                 vec![enabled_row, readiness_row],
                 well,
             ))
-            .child(settings_fieldset("How it behaves", vec![behavior], well))
+            .child(settings_fieldset(
+                typography::large_strong(&theme),
+                "How it behaves",
+                vec![behavior],
+                well,
+            ))
     }
 }
 

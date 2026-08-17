@@ -22,6 +22,7 @@ use gpui_component::{
 use crate::controls::Switch;
 
 use super::{SettingsServices, SettingsView};
+use crate::typography;
 
 /// The settings key holding the enable flag.
 pub const EXA_ENABLED_KEY: &str = "exaEnabled";
@@ -418,6 +419,7 @@ impl SettingsView {
             .id("web-search-section")
             .w_full()
             .child(super::settings_fieldset(
+                typography::large_strong(&theme),
                 "Web Search (Exa)",
                 vec![enabled_row, key_row],
                 well,

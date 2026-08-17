@@ -689,7 +689,7 @@ impl SettingsView {
         v_flex()
             .id("voice-section")
             .w_full()
-            .child(settings_fieldset("Voice Input", rows, well))
+            .child(settings_fieldset(typography::large_strong(&theme), "Voice Input", rows, well))
             .when(provider == VoiceProvider::Local, |view| {
                 view.child(self.on_device_panel(cx))
             })
@@ -1096,8 +1096,14 @@ impl SettingsView {
 
         v_flex()
             .w_full()
-            .child(settings_fieldset("On-Device Engine", engine_rows, well))
             .child(settings_fieldset(
+                typography::large_strong(&theme),
+                "On-Device Engine",
+                engine_rows,
+                well,
+            ))
+            .child(settings_fieldset(
+                typography::large_strong(&theme),
                 "Dictation Shortcut",
                 vec![self.dictation_hotkey_row(cx), self.accessibility_row(cx)],
                 well,

@@ -176,6 +176,7 @@ impl SettingsView {
             .id("about-section")
             .w_full()
             .child(settings_fieldset(
+                typography::large_strong(&theme),
                 "About",
                 vec![header, update, reset],
                 well,

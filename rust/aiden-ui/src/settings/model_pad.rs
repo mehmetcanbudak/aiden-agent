@@ -1091,12 +1091,12 @@ impl SettingsView {
         v_flex()
             .id("model-pad-section")
             .w_full()
-            .child(settings_fieldset(
+            .child(settings_fieldset(typography::large_strong(&theme),
                 "Personal Model Pad",
                 vec![body],
                 well_surface,
             ))
-            .child(settings_fieldset(
+            .child(settings_fieldset(typography::large_strong(&theme),
                 "Optional benchmark source",
                 vec![v_flex()
                     .w_full()

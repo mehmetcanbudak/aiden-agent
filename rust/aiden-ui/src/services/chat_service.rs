@@ -563,6 +563,13 @@ pub struct ChatSnapshot {
     pub selection: Option<ModelSelection>,
     pub has_providers: bool,
     pub has_key_for_selection: bool,
+    /// Chats with work in flight, so the sidebar can mark ones the user is not
+    /// currently looking at. Derived from the live generation rather than a
+    /// `ChatActivityRegistry`: this service runs one generation at a time, and
+    /// deriving cannot strand a chat as permanently working the way a missed
+    /// settle would. The registry in `aiden_core::chat_activity` carries the
+    /// upstream contract for when concurrent generations land.
+    pub working_chat_ids: std::collections::BTreeSet<String>,
 }
 
 /// Exact identity of a composer submission that crossed the durable user-turn
@@ -2106,6 +2113,12 @@ impl ChatService {
     pub fn snapshot(&self) -> ChatSnapshot {
         let provider = self.selected_provider();
         let generation = self.generation.clone();
+        let working_chat_ids: std::collections::BTreeSet<String> = generation
+            .as_ref()
+            .filter(|generation| !generation.complete)
+            .map(|generation| generation.chat_id.clone())
+            .into_iter()
+            .collect();
         let live_subagents = generation
             .as_ref()
             .filter(|generation| !generation.complete)
@@ -2128,6 +2141,7 @@ impl ChatService {
             has_providers: !self.providers.is_empty(),
             has_key_for_selection: provider
                 .is_some_and(|provider| !provider.needs_key || provider.has_key),
+            working_chat_ids: working_chat_ids.clone(),
         }
     }
 

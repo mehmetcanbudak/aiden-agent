@@ -446,6 +446,7 @@ impl AppState {
     fn sidebar_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let active_id = self.service.read(cx).active_chat_id.clone();
+        let working_chat_ids = self.service.read(cx).snapshot().working_chat_ids;
         let groups = group_chats(
             self.service
                 .read(cx)
@@ -500,7 +501,8 @@ impl AppState {
                             .gap_0p5()
                             .children(group.chats.into_iter().map(|chat| {
                                 let selected = active_id.as_deref() == Some(chat.id.as_str());
-                                self.sidebar_chat_row(chat, selected, cx)
+                                let working = working_chat_ids.contains(&chat.id);
+                                self.sidebar_chat_row(chat, selected, working, cx)
                             })),
                     )
             }))
@@ -510,6 +512,7 @@ impl AppState {
         &self,
         meta: aiden_core::ChatMeta,
         selected: bool,
+        working: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -570,6 +573,15 @@ impl AppState {
                     .truncate()
                     .child(meta.title),
             )
+            // A static ring communicates in-progress work without an animation
+            // clock, matching the renderer's indicator.
+            .when(working, |el| {
+                el.child(
+                    Icon::new(IconName::LoaderCircle)
+                        .small()
+                        .text_color(theme.accent),
+                )
+            })
             .when(selected, |el| {
                 el.child(
                     Button::new(ElementId::Name(SharedString::from(format!(

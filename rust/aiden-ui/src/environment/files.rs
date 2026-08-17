@@ -15,6 +15,7 @@ use gpui_component::{
 };
 
 use crate::app::AppState;
+use crate::typography;
 use crate::workspace_files::{
     list_workspace_files_cancellable, read_workspace_file_cancellable,
     write_workspace_file_cancellable, WorkspaceFileCancellation, WorkspaceFileDocument,
@@ -1021,7 +1022,7 @@ pub(crate) fn files_panel(
                                 }))
                             .pr_1()
                             .gap_1()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(if selected {
                                 theme.foreground
                             } else {
@@ -1104,7 +1105,7 @@ pub(crate) fn files_panel(
                     .border_color(theme.border)
                     .px_2()
                     .py_2()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(if index_error.is_some() {
                         "Refresh failed. Showing the last file index."
@@ -1181,13 +1182,13 @@ pub(crate) fn files_panel(
                             .min_w(px(0.))
                             .flex_1()
                             .truncate()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(path),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(status),
                     )
@@ -1242,7 +1243,7 @@ pub(crate) fn files_panel(
                     .border_b_1()
                     .border_color(theme.border)
                     .bg(theme.danger.opacity(0.06))
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.danger)
                     .child(div().min_w(px(0.)).flex_1().child(issue.message))
                     .child(
@@ -1277,7 +1278,7 @@ pub(crate) fn files_panel(
                     .child(Icon::new(IconName::LoaderCircle))
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Loading file…"),
                     ),
@@ -1298,7 +1299,7 @@ pub(crate) fn files_panel(
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(error),
                     )
@@ -1401,7 +1402,7 @@ pub(crate) fn files_confirmation_modal(
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(if external {
                             "Discard this draft before changing workspace or context."
@@ -1506,7 +1507,7 @@ fn empty_state(
         .child(
             div()
                 .max_w(px(340.))
-                .text_sm()
+                .text_size(typography::small(&theme))
                 .text_color(theme.muted_foreground)
                 .child(description),
         )
@@ -1516,7 +1517,7 @@ fn empty_state(
 fn status_copy(message: impl Into<String>, cx: &mut Context<AppState>) -> AnyElement {
     div()
         .p_3()
-        .text_xs()
+        .text_size(typography::small(cx.theme()))
         .text_color(cx.theme().muted_foreground)
         .child(message.into())
         .into_any_element()

@@ -23,6 +23,7 @@ use gpui_component::{
 };
 
 use crate::app::{AppState, AppView};
+use crate::typography;
 use crate::workspace::Overlay;
 
 pub const SIDEBAR_DEFAULT_WIDTH: f32 = 272.0;
@@ -430,7 +431,7 @@ impl AppState {
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_sm()
+                    .text_size(typography::small(theme))
                     .font_weight(FontWeight::MEDIUM)
                     .truncate()
                     .child(label),
@@ -471,7 +472,7 @@ impl AppState {
                         .w_full()
                         .px_2p5()
                         .py_3()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(if searching {
                             "No matches"
@@ -488,7 +489,7 @@ impl AppState {
                         div()
                             .mb_1()
                             .px_2p5()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child(group.bucket.label()),
@@ -565,7 +566,7 @@ impl AppState {
                 div()
                     .flex_1()
                     .min_w(px(0.))
-                    .text_sm()
+                    .text_size(typography::small(theme))
                     .truncate()
                     .child(meta.title),
             )
@@ -661,14 +662,14 @@ impl AppState {
                     .child(
                         div()
                             .flex_1()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .child("Update ready"),
                     ),
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(format!("Aiden Agent {version}")),
             )
@@ -756,7 +757,13 @@ impl AppState {
                     })
             })
             .child(Icon::new(icon).small().text_color(theme.muted_foreground))
-            .child(div().min_w(px(0.)).text_sm().truncate().child(label))
+            .child(
+                div()
+                    .min_w(px(0.))
+                    .text_size(typography::small(theme))
+                    .truncate()
+                    .child(label),
+            )
     }
 }
 

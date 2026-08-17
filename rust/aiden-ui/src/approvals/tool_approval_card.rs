@@ -19,6 +19,7 @@ use gpui_component::{
 
 use crate::approvals::queue::PendingApproval;
 use crate::approvals::ApprovalDecision;
+use crate::typography;
 
 /// Bound for the JSON preview so a pathological arguments payload cannot blow
 /// up the card.
@@ -104,14 +105,14 @@ pub fn tool_approval_card(
                                 .bg(theme.background)
                                 .border_1()
                                 .border_color(theme.border)
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme.muted_foreground)
                                 .child(risk_label(risk)),
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .truncate()
                                 .child(approval.tool_name.clone()),
@@ -120,7 +121,7 @@ pub fn tool_approval_card(
                 .when(!approval.summary.is_empty(), |el| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(approval.summary.clone()),
@@ -142,7 +143,7 @@ pub fn tool_approval_card(
                 .child(
                     div()
                         .font_family(theme.mono_font_family.clone())
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.muted_foreground)
                         .child(preview),
                 ),

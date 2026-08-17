@@ -58,6 +58,7 @@ use crate::chat::composer::{
 };
 use crate::chat::markdown::markdown_with_math_fallback;
 use crate::services::chat_service::{ChatSnapshot, GenerationState};
+use crate::typography;
 
 /// Pixels from the very bottom that still count as "at the bottom" — mirrors
 /// the TS `ScrollArea` threshold (`remaining < 24`).
@@ -249,7 +250,7 @@ fn render_user_bubble(message: &ChatMessage, cx: &mut Context<AppState>) -> impl
                             .py_0p5()
                             .rounded_full()
                             .bg(muted.opacity(0.72))
-                            .text_xs()
+                            .text_size(typography::mini(cx.theme()))
                             .text_color(muted_foreground)
                             .child(skill_provenance_label(&provenance.name)),
                     )
@@ -430,14 +431,14 @@ fn subagent_chips(
                     .min_w(px(0.))
                     .max_w(px(180.))
                     .truncate()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .child(chip.label),
             )
             .child(
                 div()
                     .max_w(px(120.))
                     .truncate()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(chip.status),
             )
@@ -700,7 +701,7 @@ fn render_stream_bubble(
                     .child(
                         div()
                             .flex_1()
-                            .text_sm()
+                            .text_size(typography::small(cx.theme()))
                             .text_color(foreground)
                             .child(message),
                     )
@@ -777,7 +778,7 @@ fn code_block_actions_element(
         .py_0p5()
         .child(
             div()
-                .text_xs()
+                .text_size(typography::small(cx.theme()))
                 .text_color(muted_foreground)
                 .child(code_language_label(lang)),
         )
@@ -940,7 +941,7 @@ fn attachment_file_chip(attachment: &Attachment, cx: &mut App) -> impl IntoEleme
             div()
                 .max_w(px(192.))
                 .truncate()
-                .text_sm()
+                .text_size(typography::small(theme))
                 .child(attachment.name.clone()),
         )
 }
@@ -999,7 +1000,7 @@ fn thinking_header(
             div()
                 .min_w(px(0.))
                 .flex_1()
-                .text_xs()
+                .text_size(typography::small(cx.theme()))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(muted_foreground)
                 .child(if active { "Thinking…" } else { "Thinking" }),

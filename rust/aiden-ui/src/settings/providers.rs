@@ -635,7 +635,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(danger.opacity(0.12))
-                        .text_sm()
+                        .text_size(small_text)
                         .text_color(danger)
                         .child(message),
                 )
@@ -648,7 +648,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(info.opacity(0.12))
-                        .text_sm()
+                        .text_size(small_text)
                         .text_color(foreground)
                         .child(message),
                 )
@@ -882,7 +882,7 @@ impl SettingsView {
                     ),
             )
             .when_some(self.providers.codex_error.clone(), |el, error| {
-                el.child(div().text_xs().text_color(theme.danger).child(error))
+                el.child(div().text_size(typography::small(theme)).text_color(theme.danger).child(error))
             })
     }
 
@@ -1074,7 +1074,7 @@ impl SettingsView {
                     ),
             )
             .when_some(self.providers.foundation_error.clone(), |el, error| {
-                el.child(div().text_xs().text_color(theme.danger).child(error))
+                el.child(div().text_size(typography::small(theme)).text_color(theme.danger).child(error))
             })
     }
 
@@ -1332,7 +1332,7 @@ impl SettingsView {
                                             )
                                             .child(
                                                 div()
-                                                    .text_sm()
+                                                    .text_size(typography::small(cx.theme()))
                                                     .text_color(cx.theme().muted_foreground)
                                                     .child("The browser page has been opened. Aiden never displays or logs the resulting tokens."),
                                             ),
@@ -1696,7 +1696,7 @@ impl SettingsView {
                                 .child(Spinner::new().small().color(theme.accent))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .text_color(theme.muted_foreground)
                                         .child("Discovering models…"),
                                 ),
@@ -1712,12 +1712,15 @@ impl SettingsView {
                                     .gap_2()
                                     .items_center()
                                     .mt_1()
-                                    .child(div().text_xs().text_color(theme.success).child(
-                                        format!(
-                                            "Found {count} model{}.",
-                                            if count == 1 { "" } else { "s" }
-                                        ),
-                                    ))
+                                    .child(
+                                        div()
+                                            .text_size(typography::small(theme))
+                                            .text_color(theme.success)
+                                            .child(format!(
+                                                "Found {count} model{}.",
+                                                if count == 1 { "" } else { "s" }
+                                            )),
+                                    )
                                     .child(
                                         Button::new(ElementId::Name(SharedString::from(format!(
                                             "provider-use-models-{use_id}"
@@ -1738,7 +1741,7 @@ impl SettingsView {
                                     .when(!shown.is_empty(), |el| {
                                         el.child(
                                             div()
-                                                .text_xs()
+                                                .text_size(typography::small(theme))
                                                 .text_color(theme.muted_foreground)
                                                 .child(shown.join(" · ")),
                                         )
@@ -1748,7 +1751,7 @@ impl SettingsView {
                         DiscoveryOutcome::Failed(message) => el.child(
                             div()
                                 .mt_1()
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.danger)
                                 .child(format!("Test failed: {message}")),
                         ),
@@ -2184,7 +2187,7 @@ impl SettingsView {
                     .justify_between()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(if is_new {
                                 "Add custom connection"
@@ -2211,7 +2214,7 @@ impl SettingsView {
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(theme))
                     .text_color(theme.muted_foreground)
                     .child("Set the connection details and models for this custom endpoint."),
             )
@@ -2225,7 +2228,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Name"),
@@ -2238,7 +2241,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Base URL"),
@@ -2252,7 +2255,7 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Models (one per line)"),
@@ -2271,14 +2274,14 @@ impl SettingsView {
                                 .gap_1()
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(theme.muted_foreground)
                                         .child("Thinking level"),
                                 )
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .text_color(theme.muted_foreground)
                                         .child("Applied to the default model."),
                                 ),
@@ -2320,19 +2323,22 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("API key"),
                             )
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                if draft.has_key {
-                                    "A key is stored in your keychain. Enter a new value to \
+                            .child(
+                                div()
+                                    .text_size(typography::small(theme))
+                                    .text_color(theme.muted_foreground)
+                                    .child(if draft.has_key {
+                                        "A key is stored in your keychain. Enter a new value to \
                                          replace it."
-                                } else {
-                                    "No key stored yet. Keys are kept in the macOS keychain."
-                                },
-                            )),
+                                    } else {
+                                        "No key stored yet. Keys are kept in the macOS keychain."
+                                    }),
+                            ),
                     )
                     .child(
                         v_flex()
@@ -2442,13 +2448,18 @@ impl SettingsView {
                 };
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.muted_foreground)
                         .child(message),
                 )
             })
             .when_some(draft.error.clone(), |el, error| {
-                el.child(div().text_xs().text_color(theme.danger).child(error))
+                el.child(
+                    div()
+                        .text_size(typography::small(theme))
+                        .text_color(theme.danger)
+                        .child(error),
+                )
             })
     }
 

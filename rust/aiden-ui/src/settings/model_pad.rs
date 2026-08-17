@@ -33,6 +33,7 @@ use gpui_component::{
 
 use super::providers::ProviderRow;
 use super::{settings_fieldset, SettingsView};
+use crate::typography;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelInventoryEntry {
@@ -658,13 +659,13 @@ impl SettingsView {
                 .gap_3()
                 .child(
                     div()
-                        .text_lg()
+                        .text_size(typography::large_strong(&theme))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Model Pad"),
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Loading models…"),
                 )
@@ -723,20 +724,20 @@ impl SettingsView {
                 v_flex()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .child("Arrange your models"),
                     )
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .mt_0p5()
                             .child("Choose the models you want close at hand, then place them by how capable and responsive they feel for your work. Only saved models appear on the Pad."),
                     ),
             )
             .when_some(self.model_pad.load_error.clone(), |el, message| {
-                el.child(div().text_sm().text_color(theme.danger).child(message))
+                el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(message))
             })
             .child(
                 h_flex()
@@ -753,7 +754,7 @@ impl SettingsView {
                                     .py_1()
                                     .rounded_md()
                                     .bg(theme.muted)
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .child(format!("{} on Pad", placements.len())),
                             )
                             .when(dirty, |el| {
@@ -764,7 +765,7 @@ impl SettingsView {
                                         .rounded_md()
                                         .bg(theme.accent.opacity(0.14))
                                         .text_color(theme.accent)
-                                        .text_xs()
+                                        .text_size(typography::small(&theme))
                                         .child("Unsaved changes"),
                                 )
                             })
@@ -775,7 +776,7 @@ impl SettingsView {
                                         .py_1()
                                         .rounded_md()
                                         .bg(theme.muted)
-                                        .text_xs()
+                                        .text_size(typography::small(&theme))
                                         .child("Saved locally"),
                                 )
                             }),
@@ -823,7 +824,7 @@ impl SettingsView {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(11.))
                                     .text_color(theme.muted_foreground)
                                     .text_center()
                                     .child("More capable"),
@@ -849,7 +850,7 @@ impl SettingsView {
                                             .bg(theme.foreground.opacity(0.16))
                                     }))
                                     .when(placements.is_empty(), |el| {
-                                        el.child(div().absolute().inset_0().flex().items_center().justify_center().px_10().text_center().text_sm().text_color(theme.muted_foreground).child("Add a few models from the list, then drag them into place."))
+                                        el.child(div().absolute().inset_0().flex().items_center().justify_center().px_10().text_center().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child("Add a few models from the list, then drag them into place."))
                                     })
                                     .children(placements.into_iter().map(|(id, placement)| {
                                         let left = PAD_INSET_PX + placement.x as f32 * pad_range;
@@ -903,7 +904,7 @@ impl SettingsView {
                                                     } else {
                                                         theme.foreground
                                                     })
-                                                    .text_xs()
+                                                    .text_size(px(11.))
                                                     .when(pointer_cursors, |el| el.cursor_pointer())
                                                     .tab_stop(true)
                                                     .tooltip(move |window, cx| Tooltip::new(accessible_label.clone()).build(window, cx))
@@ -944,7 +945,7 @@ impl SettingsView {
                             .child(
                                 h_flex()
                                     .justify_between()
-                                    .text_xs()
+                                    .text_size(px(11.))
                                     .text_color(theme.muted_foreground)
                                     .child("Faster")
                                     .child("More deliberate"),
@@ -958,7 +959,7 @@ impl SettingsView {
                             .gap_1()
                             .child(Input::new(&filter_input).small())
                             .child(v_flex().id("model-pad-inventory-list").overflow_y_scroll().when(available.is_empty(), |el| {
-                                el.child(div().px_2().py_4().text_sm().text_color(theme.muted_foreground).child(if inventory_count == 0 {
+                                el.child(div().px_2().py_4().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(if inventory_count == 0 {
                                     "No usable chat models are available. Connect or discover a provider first."
                                 } else {
                                     "No models match this filter."
@@ -979,8 +980,8 @@ impl SettingsView {
                                         v_flex()
                                             .min_w(px(0.))
                                             .flex_1()
-                                            .child(div().text_sm().child(label))
-                                            .child(div().text_xs().text_color(theme.muted_foreground).child(format!("{} · {}", entry.provider_label, if entry.is_local { "Local" } else { "Hosted" }))),
+                                            .child(div().text_size(typography::small(&theme)).child(label))
+                                            .child(div().text_size(px(11.)).text_color(theme.muted_foreground).child(format!("{} · {}", entry.provider_label, if entry.is_local { "Local" } else { "Hosted" }))),
                                     )
                                     .child(
                                         Button::new(SharedString::from(format!("model-pad-toggle-{id}")))
@@ -1019,14 +1020,14 @@ impl SettingsView {
                             .min_w(px(0.))
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Optional benchmark suggestions"),
                             )
                             .child(
                                 div()
                                     .mt_0p5()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child(match self.model_data.aa.as_ref() {
                                         None => "Aiden is checking the local benchmark cache…".to_string(),
@@ -1059,7 +1060,7 @@ impl SettingsView {
             .when(unavailable > 0, |el| {
                 el.child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Saved positions for temporarily unavailable models are retained and will return when those models are available again."),
                 )
@@ -1083,7 +1084,7 @@ impl SettingsView {
             .when_some(match save_state {
                 ModelPadSaveState::Failed { failure, .. } => Some(failure.message),
                 _ => None,
-            }, |el, message| el.child(div().text_sm().text_color(theme.danger).child(message)))
+            }, |el, message| el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(message)))
             .into_any_element();
 
         let well_surface = crate::services::appearance::well_surface(cx);
@@ -1105,14 +1106,14 @@ impl SettingsView {
                         v_flex()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Artificial Analysis"),
                             )
                             .child(
                                 div()
                                     .mt_0p5()
-                                    .text_size(px(13.))
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Optionally suggest positions for supported hosted models. Personal placements always win, and the Pad works without this connection."),
                             ),

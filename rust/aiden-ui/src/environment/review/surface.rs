@@ -13,6 +13,7 @@ use crate::app::AppState;
 
 use super::diff::DiffTone;
 use super::state::{ReviewMode, ReviewWorkbench};
+use crate::typography;
 
 const MODE_BAR_HEIGHT: f32 = 40.;
 const FILE_LIST_MAX_HEIGHT: f32 = 192.;
@@ -269,7 +270,7 @@ pub(crate) fn review_panel(
                         .min_w(px(0.))
                         .flex_1()
                         .truncate()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .child(current_branch.clone()),
                 )
                 .when_some(
@@ -278,7 +279,7 @@ pub(crate) fn review_panel(
                         el.child(
                             div()
                                 .flex_shrink_0()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child(file_count_label(count)),
                         )
@@ -325,13 +326,13 @@ pub(crate) fn review_panel(
                         .max_w(gpui::relative(0.32))
                         .flex_shrink_0()
                         .truncate()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(current_branch),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("with"),
                 )
@@ -489,7 +490,7 @@ pub(crate) fn review_panel(
                                         .min_w(px(0.))
                                         .flex_1()
                                         .truncate()
-                                        .text_sm()
+                                        .text_size(typography::small(&theme))
                                         .child(label.clone()),
                                 )
                         })),
@@ -505,7 +506,7 @@ pub(crate) fn review_panel(
                     .border_b_1()
                     .border_color(theme.border)
                     .bg(theme.secondary.opacity(0.5))
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(
                         div()
@@ -524,7 +525,7 @@ pub(crate) fn review_panel(
             div()
                 .px_3()
                 .py_2()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.warning)
                 .child(warning),
         );
@@ -722,12 +723,12 @@ fn file_row(
                 .min_w(px(0.))
                 .flex_1()
                 .truncate()
-                .text_sm()
+                .text_size(typography::small(theme))
                 .child(file.path.clone()),
         )
         .child(
             div()
-                .text_xs()
+                .text_size(typography::mini(theme))
                 .text_color(theme.muted_foreground)
                 .child(stats(&file)),
         )
@@ -780,7 +781,7 @@ fn diff_surface(
                     .min_w(px(0.))
                     .flex_1()
                     .truncate()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(file.path.clone()),
             )
@@ -808,7 +809,7 @@ fn diff_surface(
             div()
                 .px_3()
                 .py_2()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.warning)
                 .child("Diff truncated by Aiden."),
         );
@@ -818,7 +819,7 @@ fn diff_surface(
             div()
                 .px_3()
                 .py_2()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.warning)
                 .child("Only the first 5,000 diff rows are rendered."),
         );
@@ -829,7 +830,7 @@ fn diff_surface(
             div()
                 .px_3()
                 .py_2()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .text_color(theme.danger)
                 .child(warning),
         );
@@ -909,7 +910,7 @@ fn diff_surface(
                                         .h(px(DIFF_ROW_HEIGHT))
                                         .min_w(px(404.))
                                         .bg(background)
-                                        .text_xs()
+                                        .text_size(typography::small(&theme))
                                         .text_color(foreground)
                                         .child(div().w(px(12.)).text_center().child(marker))
                                         .child(
@@ -980,10 +981,15 @@ fn empty(title: &'static str, detail: &'static str, cx: &mut Context<AppState>) 
         .items_center()
         .justify_center()
         .gap_1()
-        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
         .child(
             div()
-                .text_sm()
+                .text_size(typography::regular(cx.theme()))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(typography::small(cx.theme()))
                 .text_color(cx.theme().muted_foreground)
                 .child(detail),
         )

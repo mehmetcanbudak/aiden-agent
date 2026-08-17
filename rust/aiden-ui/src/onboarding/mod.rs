@@ -47,6 +47,7 @@ use crate::services::appearance::SETTINGS_APPEARANCE_KEY;
 use crate::services::codex_auth::{CodexAuthAttemptGuard, CodexDialogLease};
 use crate::services::pi_provider_setup::{PiProviderStatus, PiSetupLease};
 use crate::services::stores::Stores;
+use crate::typography;
 
 use state::{
     NextOutcome, OnboardingProvider, ProviderChoice, Step, MODEL_SELECTION_SETTINGS_KEY,
@@ -793,7 +794,7 @@ impl OnboardingView {
                                             .gap_3()
                                             .child("Enter this temporary code on OpenAI's verification page:")
                                             .child(div().text_2xl().font_weight(gpui::FontWeight::SEMIBOLD).child(code.clone()))
-                                            .child(div().text_sm().text_color(cx.theme().muted_foreground).child("OAuth tokens stay encrypted in this Mac's Keychain.")),
+                                            .child(div().text_size(typography::small(cx.theme())).text_color(cx.theme().muted_foreground).child("OAuth tokens stay encrypted in this Mac's Keychain.")),
                                     )
                                     .footer(|_, cancel_button, window, cx| vec![cancel_button(window, cx)])
                                     .on_cancel(move |_, _, _| {

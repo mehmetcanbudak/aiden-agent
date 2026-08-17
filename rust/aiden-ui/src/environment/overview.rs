@@ -9,6 +9,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme, Icon, IconName, Sizable as _};
 use crate::app::AppState;
 
 use super::{EnvironmentTab, EnvironmentWorkbench, ReviewMode, ReviewWorkbench};
+use crate::typography;
 
 pub(crate) fn overview(
     environment: &gpui::Entity<EnvironmentWorkbench>,
@@ -99,14 +100,14 @@ pub(crate) fn overview(
                     .pb_2()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .truncate()
                             .child(workspace.name.clone()),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(access),
                     ),
@@ -199,14 +200,14 @@ fn overview_row(
             div()
                 .min_w(px(0.))
                 .flex_1()
-                .text_sm()
+                .text_size(typography::small(theme))
                 .truncate()
                 .child(label),
         )
         .child(
             div()
                 .max_w(px(190.))
-                .text_xs()
+                .text_size(typography::small(theme))
                 .text_color(theme.muted_foreground)
                 .truncate()
                 .child(detail),
@@ -225,14 +226,14 @@ fn empty_state(title: &str, description: &str, cx: &mut gpui::App) -> AnyElement
         .gap_1()
         .child(
             div()
-                .text_sm()
+                .text_size(typography::regular(theme))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.to_string()),
         )
         .child(
             div()
                 .max_w(px(280.))
-                .text_xs()
+                .text_size(typography::small(theme))
                 .text_color(theme.muted_foreground)
                 .child(description.to_string()),
         )

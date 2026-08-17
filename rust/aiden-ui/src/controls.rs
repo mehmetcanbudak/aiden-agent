@@ -3,6 +3,7 @@
 
 use std::rc::Rc;
 
+use crate::typography;
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, ElementId, Hsla, InteractiveElement as _,
     IntoElement, ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _,
@@ -134,7 +135,12 @@ impl RenderOnce for Switch {
                     }),
             )
             .when_some(self.label, |this, label| {
-                this.child(div().line_height(px(24.0)).text_base().child(label))
+                this.child(
+                    div()
+                        .line_height(px(24.0))
+                        .text_size(typography::regular(cx.theme()))
+                        .child(label),
+                )
             })
     }
 }

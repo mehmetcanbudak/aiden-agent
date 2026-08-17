@@ -8,6 +8,7 @@
 //! instead of touching the store directly. All formatting/countdown logic is
 //! pure and unit-tested against the renderer's contract.
 
+use crate::typography;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -662,21 +663,21 @@ impl ScheduledPanel {
                     .gap_0p5()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(&theme))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .truncate()
                             .child(task.name.clone()),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(format!("{status} · {cadence}")),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(last_run),
                     )
@@ -686,7 +687,7 @@ impl ScheduledPanel {
                             .filter(|value| !value.trim().is_empty())
                             .unwrap_or(run.output);
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(if run.result == ScheduledRunResult::Error {
                                 theme.danger
                             } else {
@@ -763,7 +764,7 @@ impl Render for ScheduledPanel {
                     .items_center()
                     .child(
                         div()
-                            .text_base()
+                            .text_size(typography::regular(&theme))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child("Scheduled tasks"),
                     )
@@ -818,7 +819,7 @@ impl Render for ScheduledPanel {
                         .py_2()
                         .rounded_md()
                         .bg(theme.danger.opacity(0.12))
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(error),
                 )
@@ -839,7 +840,7 @@ impl Render for ScheduledPanel {
                                 .py_3()
                                 .items_center()
                                 .justify_center()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child("No scheduled tasks match."),
                         )

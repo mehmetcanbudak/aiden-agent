@@ -89,6 +89,7 @@ use crate::settings::navigation::{
     SettingsCompactTabTarget, SettingsEscapeTarget, SettingsNavigation,
 };
 use crate::settings::{SettingsEvent, SettingsSection, SettingsServices, SettingsView};
+use crate::typography;
 use crate::workspace::{NotificationKind, WorkspaceEvent, WorkspaceState};
 
 fn pending_files_replay_authorized(
@@ -977,7 +978,7 @@ impl AppState {
                         .bg(theme.popover)
                         .border_1()
                         .border_color(theme.border)
-                        .text_sm()
+                        .text_size(typography::small(theme))
                         .truncate()
                         .child(preview),
                 )
@@ -1009,7 +1010,7 @@ impl AppState {
                                 .h(px(18.))
                                 .rounded_full()
                                 .bg(theme.danger)
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.danger_foreground)
                                 .flex()
                                 .items_center()
@@ -1201,7 +1202,7 @@ impl AppState {
                                 div()
                                     .min_w(px(0.))
                                     .flex_1()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme.foreground)
                                     .truncate()
@@ -3776,7 +3777,7 @@ impl AppState {
                     .on_click(|_event, _window, cx| cx.stop_propagation())
                     .child(
                         div()
-                            .text_size(px(18.))
+                            .text_size(typography::heading2(theme))
                             .line_height(px(24.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Reset onboarding and restart Aiden?"),
@@ -4719,9 +4720,9 @@ impl AppState {
                 .on_mouse_down(gpui::MouseButton::Left, |_event, _window, cx| cx.stop_propagation())
                 .on_click(|_event, _window, cx| cx.stop_propagation())
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("Set up {}", modal.label)))
-                .child(div().text_sm().text_color(theme.muted_foreground).child("This credential is encrypted on this Mac and bound to Pi's exact provider catalog."))
+                .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child("This credential is encrypted on this Mac and bound to Pi's exact provider catalog."))
                 .child(Input::new(&modal.api_key).mask_toggle().disabled(busy))
-                .when_some(modal.error.clone(), |el, error| el.child(div().text_sm().text_color(theme.danger).child(error)))
+                .when_some(modal.error.clone(), |el, error| el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error)))
                 .child(h_flex().justify_between().gap_2()
                     .child(if configured { div().track_focus(&self.pi_provider_sign_out_focus).tab_stop(true).child(Button::new("pi-provider-sign-out").danger().small().tab_stop(false).label("Sign out").disabled(busy).on_click(cx.listener(|this, _, window, cx| this.sign_out_pi_provider(window, cx)))).into_any_element() } else { div().into_any_element() })
                     .child(h_flex().gap_2()
@@ -4792,13 +4793,13 @@ impl AppState {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.foreground)
                             .child(request.summary),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "Exact target: PID {}, window {}. This grant is consumed by this action only.",
@@ -4964,14 +4965,14 @@ impl AppState {
                             .child("Allow this MCP call once?"),
                     )
                     .child(
-                        div().text_sm().child(format!(
+                        div().text_size(typography::small(&theme)).child(format!(
                             "A delegated task wants to call {}:{}.",
                             request.server_id, request.tool_name
                         )),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("The configured server controls the actual effect. Its result will be treated as untrusted evidence."),
                     )
@@ -4980,7 +4981,7 @@ impl AppState {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Arguments sent to this server"),
                             )
@@ -4992,12 +4993,12 @@ impl AppState {
                                     .rounded_md()
                                     .bg(theme.muted)
                                     .font_family(theme.mono_font_family.clone())
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .child(arguments),
                             ),
                     )
                     .when_some(error, |el, error| {
-                        el.child(div().text_xs().text_color(theme.danger).child(error))
+                        el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
                     })
                     .child(
                         h_flex()
@@ -5160,21 +5161,21 @@ impl AppState {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Allow this MCP mutation once?"),
                     )
-                    .child(div().text_sm().child(format!(
+                    .child(div().text_size(typography::small(&theme)).child(format!(
                         "A delegated task wants to call {}:{}.",
                         request.server_id, request.tool_name
                     )))
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("The configured server controls the actual effect. This call can change remote state; its result is untrusted evidence."),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(profile))
+                    .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(profile))
                     .when(prior_unknown, |el| {
                         el.child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.danger)
                                 .child("A prior identical mutation has an unknown outcome. Do not retry automatically; verify the server first."),
                         )
@@ -5184,7 +5185,7 @@ impl AppState {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Arguments sent to this server"),
                             )
@@ -5196,12 +5197,12 @@ impl AppState {
                                     .rounded_md()
                                     .bg(theme.muted)
                                     .font_family(theme.mono_font_family.clone())
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .child(arguments),
                             ),
                     )
                     .when_some(error, |el, error| {
-                        el.child(div().text_xs().text_color(theme.danger).child(error))
+                        el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
                     })
                     .child(
                         h_flex()
@@ -5361,7 +5362,12 @@ impl AppState {
                         .unwrap_or_default(),
                     ))
                     .when_some(error, |el, error| {
-                        el.child(div().text_xs().text_color(theme.danger).child(error))
+                        el.child(
+                            div()
+                                .text_size(typography::small(&theme))
+                                .text_color(theme.danger)
+                                .child(error),
+                        )
                     })
                     .child(
                         h_flex()
@@ -5535,7 +5541,7 @@ impl AppState {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.foreground)
                             .child(format!(
                                 "{} · {} · {}",
@@ -5544,7 +5550,7 @@ impl AppState {
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "{} proposes this exact change. Before: {} · After: {}. No command will run.",
@@ -5562,7 +5568,7 @@ impl AppState {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme.muted_foreground)
                                     .child(if request.details.diff_truncated {
@@ -5578,18 +5584,18 @@ impl AppState {
                                     .p_3()
                                     .rounded_md()
                                     .bg(theme.secondary)
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .child(request.details.diff_preview.clone()),
                             ),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Aiden will refuse the change if the workspace, file, provider, credential, or approval binding has changed since this preview."),
                     )
                     .when_some(error, |el, error| {
-                        el.child(div().text_xs().text_color(theme.danger).child(error))
+                        el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
                     })
                     .child(
                         h_flex()
@@ -5723,10 +5729,10 @@ impl AppState {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Enable Computer Use for this chat?"),
                     )
-                    .child(div().text_sm().text_color(theme.muted_foreground).child(
+                    .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(
                         "Computer Use can inspect the selected app's pixels and accessibility details. That transient UI context may be sent to your selected model provider, but Aiden does not save or log captures. Every input action still asks for Allow once or Deny.",
                     ))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
+                    .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(
                         "The pinned helper and macOS permissions must be ready. Permission prompts only appear after you explicitly request them in Settings.",
                     ))
                     .child(

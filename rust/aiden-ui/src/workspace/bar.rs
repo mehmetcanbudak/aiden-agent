@@ -12,6 +12,7 @@ use gpui_component::{
 };
 
 use crate::app::AppState;
+use crate::typography;
 
 use super::state::{
     filter_workspaces, truncate_path_middle, Overlay, WorkspaceEvent, WorkspaceState,
@@ -60,7 +61,7 @@ impl AppState {
                                 .xsmall()
                                 .text_color(theme.muted_foreground),
                         )
-                        .child(div().text_xs().child("Local")),
+                        .child(div().text_size(typography::small(&theme)).child("Local")),
                 )
                 .child(self.bar_divider(theme.border))
             })
@@ -127,7 +128,7 @@ impl AppState {
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .max_w(px(if compact { 120.0 } else { 220.0 }))
                     .truncate()
                     .child(name),
@@ -180,7 +181,7 @@ pub(crate) fn workspaces_content(
                             .w_full()
                             .px_2()
                             .py_2()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child("No matching workspaces."),
                     )
@@ -238,7 +239,7 @@ pub(crate) fn workspaces_content(
                                 .gap_0p5()
                                 .child(
                                     div()
-                                        .text_sm()
+                                        .text_size(typography::small(theme))
                                         .font_weight(FontWeight::MEDIUM)
                                         .truncate()
                                         .child(label),
@@ -246,7 +247,7 @@ pub(crate) fn workspaces_content(
                                 .when_some(path, |el, path| {
                                     el.child(
                                         div()
-                                            .text_xs()
+                                            .text_size(typography::small(theme))
                                             .text_color(theme.muted_foreground)
                                             .truncate()
                                             .child(truncate_path_middle(&path, 44)),
@@ -291,7 +292,7 @@ pub(crate) fn workspaces_content(
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(theme.foreground)
                                 .child("Choose folder…"),

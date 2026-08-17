@@ -324,6 +324,7 @@ impl SettingsView {
                                                 }),
                                                 |row, version| {
                                                     row.child(computer_use_badge(
+                                                        &theme,
                                                         format!("cua-driver {version}"),
                                                         theme.muted,
                                                         theme.foreground,
@@ -450,12 +451,12 @@ impl SettingsView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(computer_use_badge(
+                            .child(computer_use_badge(&theme,
                                 "Per-chat opt-in",
                                 theme.muted,
                                 theme.foreground,
                             ))
-                            .child(computer_use_badge(
+                            .child(computer_use_badge(&theme,
                                 "Actions ask first",
                                 theme.muted,
                                 theme.foreground,
@@ -489,7 +490,12 @@ impl SettingsView {
                     .items_center()
                     .gap_2()
                     .child("Computer Use")
-                    .child(computer_use_badge("Beta", theme.accent, theme.accent))
+                    .child(computer_use_badge(
+                        &theme,
+                        "Beta",
+                        theme.accent,
+                        theme.accent,
+                    ))
                     .into_any_element(),
                 vec![enabled_row, readiness_row],
                 well,
@@ -499,6 +505,7 @@ impl SettingsView {
 }
 
 fn computer_use_badge(
+    theme: &gpui_component::Theme,
     label: impl Into<SharedString>,
     background: gpui::Hsla,
     foreground: gpui::Hsla,
@@ -507,7 +514,7 @@ fn computer_use_badge(
         .rounded_full()
         .bg(background.opacity(0.14))
         .text_color(foreground)
-        .text_xs()
+        .text_size(typography::small(theme))
         .font_weight(FontWeight::MEDIUM)
         .px_2()
         .py_0p5()

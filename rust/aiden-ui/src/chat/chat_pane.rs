@@ -44,6 +44,7 @@ use crate::chat::model_pad_picker::{
 use crate::chat::model_picker::{ComposerModelPickerEvent, ModelPickerPins, PickerTab};
 use crate::services::chat_service::ChatSnapshot;
 use crate::services::skill_tools::SkillCatalogSource;
+use crate::typography;
 
 impl AppState {
     /// The main chat area: message list + composer (+ empty states).
@@ -107,41 +108,45 @@ impl AppState {
                 .into_any_element();
         }
 
-        let body =
-            if !snapshot.has_providers {
-                // No provider configured: inline notice with a settings action.
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_base()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("No providers configured yet"),
-                            )
-                            .child(div().text_sm().text_color(theme.muted_foreground).child(
-                                "Add a provider in Settings to start chatting with a model.",
-                            )),
-                    )
-                    .child(
-                        Button::new("open-settings")
-                            .small()
-                            .label("Open Settings")
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                this.open_settings_section(window, cx);
-                            })),
-                    )
-                    .into_any_element()
-            } else {
-                div()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child("What would you like to work on?")
-                    .into_any_element()
-            };
+        let body = if !snapshot.has_providers {
+            // No provider configured: inline notice with a settings action.
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(typography::regular(theme))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child("No providers configured yet"),
+                        )
+                        .child(
+                            div()
+                                .text_size(typography::small(theme))
+                                .text_color(theme.muted_foreground)
+                                .child(
+                                    "Add a provider in Settings to start chatting with a model.",
+                                ),
+                        ),
+                )
+                .child(
+                    Button::new("open-settings")
+                        .small()
+                        .label("Open Settings")
+                        .on_click(cx.listener(|this, _event, window, cx| {
+                            this.open_settings_section(window, cx);
+                        })),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .text_size(typography::small(theme))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .child("What would you like to work on?")
+                .into_any_element()
+        };
 
         v_flex()
             .id("chat-empty")
@@ -277,7 +282,7 @@ impl AppState {
                                 .py_1()
                                 .rounded_md()
                                 .bg(theme.secondary)
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.secondary_foreground)
                                 .child(format!("Skill: {}", skill.name))
                                 .child(
@@ -306,7 +311,7 @@ impl AppState {
                             div()
                                 .px_1p5()
                                 .pb_1()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child(message),
                         )
@@ -691,7 +696,7 @@ impl AppState {
                 div()
                     .px_2()
                     .pt_1()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Commands"),
             );
@@ -702,7 +707,7 @@ impl AppState {
                 div()
                     .px_2()
                     .pt_1()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Skills"),
             );
@@ -713,7 +718,7 @@ impl AppState {
                 div()
                     .px_2()
                     .py_2()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Loading skills…"),
             );
@@ -722,7 +727,7 @@ impl AppState {
                 div()
                     .px_2()
                     .py_2()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("No matching commands or skills"),
             );
@@ -940,14 +945,14 @@ impl AppState {
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(cx.theme()))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .child("Your Model Pad is empty"),
                         )
                         .child(
                             div()
                                 .max_w(px(208.))
-                                .text_xs()
+                                .text_size(typography::small(cx.theme()))
                                 .text_color(cx.theme().muted_foreground)
                                 .child("Choose a few models and arrange them by capability and pace in Settings."),
                         )
@@ -990,7 +995,7 @@ impl AppState {
                             el.child(
                                 div()
                                     .max_w(px(208.))
-                                    .text_xs()
+                                    .text_size(typography::small(cx.theme()))
                                     .text_color(cx.theme().muted_foreground)
                                     .child("Finish the current workspace operation first."),
                             )
@@ -1341,14 +1346,14 @@ impl AppState {
                                                 div()
                                                     .w_full()
                                                     .truncate()
-                                                    .text_sm()
+                                                    .text_size(typography::small(cx.theme()))
                                                     .child(row_title),
                                             )
                                             .child(
                                                 div()
                                                     .w_full()
                                                     .truncate()
-                                                    .text_xs()
+                                                    .text_size(typography::small(cx.theme()))
                                                     .text_color(cx.theme().muted_foreground)
                                                     .child(row_subtitle),
                                             ),
@@ -1491,14 +1496,14 @@ impl AppState {
                                     .min_w(px(0.))
                                     .child(
                                         div()
-                                            .text_sm()
+                                            .text_size(typography::small(cx.theme()))
                                             .w_full()
                                             .truncate()
                                             .child(model_display_name(&item).to_string()),
                                     )
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(typography::small(cx.theme()))
                                             .w_full()
                                             .truncate()
                                             .text_color(cx.theme().muted_foreground)
@@ -1516,7 +1521,7 @@ impl AppState {
                             .gap_1()
                             .children(details.into_iter().map(|detail| {
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(cx.theme()))
                                     .text_color(cx.theme().muted_foreground)
                                     .child(detail)
                             }))
@@ -1692,10 +1697,16 @@ impl AppState {
                         .into_any_element()
                 }),
             )
-            .child(div().max_w(px(160.)).truncate().text_xs().child(name))
             .child(
                 div()
-                    .text_xs()
+                    .max_w(px(160.))
+                    .truncate()
+                    .text_size(typography::small(theme))
+                    .child(name),
+            )
+            .child(
+                div()
+                    .text_size(typography::small(theme))
                     .text_color(theme.muted_foreground)
                     .child(size),
             )
@@ -1725,7 +1736,12 @@ impl AppState {
             .items_center()
             .px_1p5()
             .child(Icon::new(IconName::Replace).small().text_color(accent))
-            .child(div().text_xs().text_color(accent).child("Editing message"))
+            .child(
+                div()
+                    .text_size(typography::small(theme))
+                    .text_color(accent)
+                    .child("Editing message"),
+            )
             .child(div().flex_1())
             .child(
                 Button::new("cancel-edit")
@@ -2115,10 +2131,10 @@ fn permission_menu_item(
             .min_w(px(260.))
             .gap_0p5()
             .py_0p5()
-            .child(div().text_sm().child(label))
+            .child(div().text_size(typography::small(cx.theme())).child(label))
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(cx.theme()))
                     .text_color(cx.theme().muted_foreground)
                     .child(description),
             )

@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use crate::typography;
 use aiden_core::subagent_runs::{
     SubagentEffectActivityStateV1, SubagentEffectActivityV1, SubagentRunSnapshotV2,
     SubagentRunStateV2, SubagentSnapshotRole,
@@ -602,14 +603,14 @@ impl SubagentsPanel {
                     .gap_0p5()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .truncate()
                             .child(run.label.clone()),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(run.task_preview.clone()),
@@ -618,7 +619,7 @@ impl SubagentsPanel {
             .child(
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(duration),
             )
@@ -652,7 +653,7 @@ impl SubagentsPanel {
             .child(
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(match run.state {
                         SubagentRunStateV2::Failed => theme.danger,
                         SubagentRunStateV2::TimedOut | SubagentRunStateV2::NeedsAttention => {
@@ -711,7 +712,7 @@ impl SubagentsPanel {
             .gap_1()
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(format!(
                         "{} · {} turns · {} tools · {} tokens",
@@ -721,7 +722,7 @@ impl SubagentsPanel {
             .when_some(run.activity.clone(), |el, activity| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(activity),
                 )
@@ -729,7 +730,7 @@ impl SubagentsPanel {
             .when_some(run.error.clone(), |el, error| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(format!("Error: {error}")),
                 )
@@ -742,7 +743,10 @@ impl SubagentsPanel {
                     | SubagentEffectActivityStateV1::Authorized => theme.warning,
                     _ => theme.muted_foreground,
                 };
-                div().text_xs().text_color(color).child(effect.label)
+                div()
+                    .text_size(typography::small(&theme))
+                    .text_color(color)
+                    .child(effect.label)
             }))
             .when(is_state_active(run.state), |el| {
                 let run_id = run.run_id.clone();
@@ -755,7 +759,7 @@ impl SubagentsPanel {
                         .py_1()
                         .rounded_md()
                         .bg(theme.secondary)
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .child("Stop run")
                         .on_click(cx.listener(move |this, _event, _window, cx| {
                             if this.source.stop(&run_id) {
@@ -767,7 +771,7 @@ impl SubagentsPanel {
             .when(!children.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.muted_foreground)
                         .child(format!("{} child run(s)", children.len())),
@@ -787,15 +791,18 @@ impl SubagentsPanel {
             .gap_1()
             .child(
                 div()
-                    .text_base()
+                    .text_size(typography::regular(&theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("No subagents yet"),
             )
-            .child(div().text_sm().text_color(theme.muted_foreground).child(
-                self.source.unavailable_message().unwrap_or_else(|| {
-                    "Subagents used by this conversation will appear here.".to_string()
-                }),
-            ))
+            .child(
+                div()
+                    .text_size(typography::small(&theme))
+                    .text_color(theme.muted_foreground)
+                    .child(self.source.unavailable_message().unwrap_or_else(|| {
+                        "Subagents used by this conversation will appear here.".to_string()
+                    })),
+            )
     }
 }
 
@@ -836,7 +843,7 @@ impl Render for SubagentsPanel {
                     .px_2()
                     .pt_2()
                     .pb_1()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.muted_foreground)
                     .child(label)
@@ -865,14 +872,14 @@ impl Render for SubagentsPanel {
                     .items_center()
                     .child(
                         div()
-                            .text_base()
+                            .text_size(typography::regular(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Subagents"),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "{} runs · {} failed · {} timed out",

@@ -548,7 +548,7 @@ impl SettingsView {
                             .child(div().font_weight(FontWeight::MEDIUM).child("Skills"))
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Reusable instruction sets the assistant can invoke as tools when a task matches."),
                             ),
@@ -569,18 +569,18 @@ impl SettingsView {
             .when(self.skills.managed_loading && configured_len == 0, |el| {
                 el.child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Loading skills…"),
                 )
             })
             .when_some(self.skills.managed_error.clone(), |el, error| {
-                el.child(div().text_sm().text_color(theme.danger).child(error))
+                el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
             })
             .when(!self.skills.managed_loading && configured_len == 0, |el| {
                 el.child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("No skills yet. Create one — e.g. “Code Reviewer” with your review checklist as its instructions."),
                 )
@@ -592,13 +592,13 @@ impl SettingsView {
                 el.child(
                     div()
                         .pt_2()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Scanning skill folders…"),
                 )
             })
             .when_some(self.skills.discovery_error.clone(), |el, error| {
-                el.child(div().text_sm().text_color(theme.danger).child(error))
+                el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
             })
             .when(discovered_len > 0, |el| {
                 el.child(
@@ -610,7 +610,7 @@ impl SettingsView {
                         .child(div().font_weight(FontWeight::MEDIUM).child("From skill folders"))
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child("Auto-discovered SKILL.md files in workspace and global .agents/skills, .claude/skills, and .aiden/{skill,skills} folders. Availability follows the same collision and safety rules as the composer and model."),
                         )
@@ -671,7 +671,7 @@ impl SettingsView {
                                             .child(
                                                 div()
                                                     .truncate()
-                                                    .text_sm()
+                                                    .text_size(typography::small(&theme))
                                                     .text_color(theme.muted_foreground)
                                                     .child(
                                                         if skill.description.trim().is_empty() {
@@ -808,14 +808,14 @@ impl SettingsView {
                                                                 theme.secondary
                                                             },
                                                         )
-                                                        .text_xs()
+                                                        .text_size(typography::small(&theme))
                                                         .child(source),
                                                 ),
                                         )
                                         .child(
                                             div()
                                                 .truncate()
-                                                .text_sm()
+                                                .text_size(typography::small(&theme))
                                                 .text_color(theme.muted_foreground)
                                                 .child(detail),
                                         ),
@@ -939,7 +939,7 @@ pub(crate) fn skills_modal(
                         ),
                 )
                 .when_some(draft.error.clone(), |el, error| {
-                    el.child(div().text_sm().text_color(theme.danger).child(error))
+                    el.child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(error))
                 })
                 .child(
                     h_flex()
@@ -1033,7 +1033,12 @@ pub(crate) fn skills_modal(
                         .child(format!("“{name}” will be removed.")),
                 )
                 .when_some(state.skills.managed_error.clone(), |el, error| {
-                    el.child(div().text_sm().text_color(theme.danger).child(error))
+                    el.child(
+                        div()
+                            .text_size(typography::small(&theme))
+                            .text_color(theme.danger)
+                            .child(error),
+                    )
                 })
                 .child(
                     h_flex()

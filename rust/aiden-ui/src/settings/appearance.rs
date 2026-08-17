@@ -29,6 +29,7 @@ use crate::controls::Switch;
 use std::{io::Read, sync::Arc};
 
 use super::{SettingsServices, SettingsView};
+use crate::typography;
 
 const AIDEN_ICON_PNG: &[u8] = include_bytes!("../../../../resources/app-icon.png");
 const MONOCHROME_ICON_PNG: &[u8] = include_bytes!("../../../../resources/app-icon-monochrome.png");
@@ -727,7 +728,7 @@ impl SettingsView {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .mt_1p5()
                             .child("Shape Aiden’s light and dark interfaces independently. Changes apply live."),
@@ -741,7 +742,7 @@ impl SettingsView {
                             .items_center()
                             .justify_between()
                             .gap_3()
-                            .child(div().text_sm().text_color(theme.danger).child(message))
+                            .child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(message))
                             .child(
                                 Button::new("appearance-retry-save")
                                     .ghost()
@@ -762,7 +763,7 @@ impl SettingsView {
                 self.services.appearance_service.read(cx).appearance_native_failure().map(str::to_string),
                 |el, message| {
                     el.child(h_flex().items_center().justify_between().gap_3()
-                        .child(div().text_sm().text_color(theme.danger).child(format!("Native appearance: {message}")))
+                        .child(div().text_size(typography::small(&theme)).text_color(theme.danger).child(format!("Native appearance: {message}")))
                         .child(Button::new("appearance-retry-native").ghost().small().label("Retry").on_click(cx.listener(|this, _, _, cx| {
                             this.services.appearance_service.update(cx, |service, cx| service.retry_native_appearance(cx));
                         }))))
@@ -775,7 +776,7 @@ impl SettingsView {
                     .child(
                         div()
                             .mx_1()
-                            .text_sm()
+                            .text_size(typography::regular(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Theme"),
                     )
@@ -806,7 +807,7 @@ impl SettingsView {
                                             .justify_center()
                                             .gap_1()
                                             .items_center()
-                                            .text_size(px(13.))
+                                            .text_size(typography::small(&theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(if active {
                                                 theme.foreground
@@ -890,7 +891,7 @@ impl SettingsView {
                         .gap_4()
                         .px_4()
                         .py_2()
-                        .child(div().text_sm().child(label))
+                        .child(div().text_size(typography::small(theme)).child(label))
                         .child(
                             h_flex()
                                 .w(px(164.))
@@ -930,7 +931,7 @@ impl SettingsView {
                                     None => div()
                                         .px_2()
                                         .font_family("monospace")
-                                        .text_xs()
+                                        .text_size(px(12.))
                                         .child(color)
                                         .into_any_element(),
                                 }),
@@ -962,7 +963,7 @@ impl SettingsView {
                         .gap_4()
                         .px_4()
                         .py_2()
-                        .child(div().text_sm().child(label))
+                        .child(div().text_size(typography::small(theme)).child(label))
                         .child(control),
                 )
                 .when(separator, |el| {
@@ -1048,7 +1049,7 @@ impl SettingsView {
                 div()
                     .w(px(34.))
                     .text_right()
-                    .text_xs()
+                    .text_size(typography::small(theme))
                     .text_color(theme.muted_foreground)
                     .child(variant.contrast.to_string()),
             )
@@ -1075,7 +1076,7 @@ impl SettingsView {
                     .border_color(theme.border)
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(match scheme {
                                 Scheme::Light => "Light theme",
@@ -1160,7 +1161,7 @@ impl SettingsView {
                     div()
                         .px_4()
                         .pb_3()
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.danger)
                         .child(error),
                 )
@@ -1170,7 +1171,7 @@ impl SettingsView {
                     div()
                         .px_4()
                         .pb_3()
-                        .text_xs()
+                        .text_size(typography::small(theme))
                         .text_color(theme.success)
                         .child(feedback),
                 )
@@ -1221,12 +1222,15 @@ impl SettingsView {
                     .child(
                         h_flex()
                             .justify_between()
-                            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
-                                match scheme {
-                                    Scheme::Light => "Light",
-                                    Scheme::Dark => "Dark",
-                                },
-                            ))
+                            .child(
+                                div()
+                                    .text_size(typography::small(&theme))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(match scheme {
+                                        Scheme::Light => "Light",
+                                        Scheme::Dark => "Dark",
+                                    }),
+                            )
                             .child(
                                 h_flex().gap_1().children(
                                     swatches
@@ -1237,7 +1241,7 @@ impl SettingsView {
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "{} · {}",
@@ -1247,7 +1251,7 @@ impl SettingsView {
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "Contrast {} · Sidebar {}",
@@ -1295,11 +1299,16 @@ impl SettingsView {
                             v_flex()
                                 .flex_1()
                                 .min_w(px(0.))
-                                .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(label))
+                                .child(
+                                    div()
+                                        .text_size(typography::regular(theme))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .child(label),
+                                )
                                 .child(
                                     div()
                                         .mt_0p5()
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .text_color(theme.muted_foreground)
                                         .child(description),
                                 ),
@@ -1428,7 +1437,7 @@ impl SettingsView {
                 div()
                     .mb_3()
                     .px_1()
-                    .text_sm()
+                    .text_size(typography::regular(theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Preferences"),
             )
@@ -1558,7 +1567,7 @@ impl SettingsView {
                     .id(SharedString::from(format!("{id}-value")))
                     .min_w(px(40.))
                     .text_center()
-                    .text_sm()
+                    .text_size(typography::small(cx.theme()))
                     .child(format!("{value}px")),
             )
             .child(
@@ -1748,7 +1757,7 @@ impl SettingsView {
             .child(
                 div()
                     .flex_1()
-                    .text_sm()
+                    .text_size(typography::regular(&theme))
                     .font_weight(FontWeight::MEDIUM)
                     .child(label.to_string()),
             )

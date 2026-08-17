@@ -8,6 +8,7 @@ use gpui::{
 use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme, Sizable as _};
 
 use super::{settings_field, settings_fieldset, SettingsSection, SettingsView};
+use crate::typography;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AssistantBadgeTone {
@@ -109,7 +110,7 @@ impl SettingsView {
             .child(assistant_badge(shortcut_badge, shortcut_tone, &theme))
             .child(
                 div()
-                    .text_size(gpui::px(13.))
+                    .text_size(typography::small(&theme))
                     .font_weight(FontWeight::MEDIUM)
                     .child(shortcut_value),
             )
@@ -171,7 +172,7 @@ fn assistant_badge(
         .rounded_full()
         .bg(background)
         .text_color(foreground)
-        .text_size(gpui::px(13.))
+        .text_size(typography::small(theme))
         .font_weight(FontWeight::MEDIUM)
         .px_2()
         .child(label.into())

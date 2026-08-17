@@ -24,9 +24,11 @@ use gpui_tokio_bridge::Tokio;
 
 use crate::services::computer_use::ComputerUseUserInitiated;
 
+use crate::typography;
+
 use super::{
     settings_field, settings_fieldset, settings_fieldset_with_title, SettingsServices,
-    SettingsView, SETTINGS_CARD_RADIUS_PX, SETTINGS_SMALL_TEXT_PX, SETTINGS_TEXT_PX,
+    SettingsView, SETTINGS_CARD_RADIUS_PX,
 };
 
 pub const COMPUTER_USE_ENABLED_KEY: &str = "computerUseEnabled";
@@ -312,7 +314,7 @@ impl SettingsView {
                                             .gap_2()
                                             .child(
                                                 div()
-                                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                                    .text_size(typography::small(&theme))
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .child(presentation.label),
                                             )
@@ -332,7 +334,7 @@ impl SettingsView {
                                     .child(
                                         div()
                                             .mt_1()
-                                            .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                            .text_size(typography::small(&theme))
                                             .text_color(theme.secondary_foreground)
                                             .child(presentation.detail),
                                     ),
@@ -376,7 +378,7 @@ impl SettingsView {
                 view.child(
                     h_flex()
                         .gap_2()
-                        .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                        .text_size(typography::small(&theme))
                         .text_color(theme.secondary_foreground)
                         .child(format!(
                             "Accessibility: {}",
@@ -402,14 +404,14 @@ impl SettingsView {
                         v_flex()
                             .child(
                                 div()
-                                    .text_size(gpui::px(SETTINGS_TEXT_PX))
+                                    .text_size(typography::regular(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Readiness"),
                             )
                             .child(
                                 div()
                                     .mt(gpui::px(2.))
-                                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.secondary_foreground)
                                     .child("Computer Use needs Accessibility and Screen Recording. Permission belongs to Aiden Computer Use, not the model provider."),
                             ),
@@ -418,7 +420,7 @@ impl SettingsView {
                     .when_some(privacy_notice_error.clone(), |view, error| {
                         view.child(
                             div()
-                                .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.danger)
                                 .child(error),
                         )
@@ -436,7 +438,7 @@ impl SettingsView {
                 div()
                     .flex_1()
                     .min_w(gpui::px(0.))
-                    .text_size(gpui::px(SETTINGS_SMALL_TEXT_PX))
+                    .text_size(typography::small(&theme))
                     .text_color(theme.secondary_foreground)
                     .child("Only chats you turn on can use Computer Use. For those responses, your selected model may receive screenshots, window details, and accessibility text. Aiden doesn’t save that content; your provider handles it under its data policy. Read-only inspection runs without prompts, while every control action requires Allow once."),
             )

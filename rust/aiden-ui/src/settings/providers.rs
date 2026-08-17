@@ -41,6 +41,7 @@ use crate::services::codex_auth::{
     DEVICE_VERIFICATION_URI,
 };
 use crate::services::provider_kit::ModelSelection;
+use crate::typography;
 
 enum CodexAuthUpdate {
     DeviceCode(crate::services::codex_auth::CodexDeviceAuthorization),
@@ -457,6 +458,8 @@ impl SettingsView {
         let muted_foreground = theme.muted_foreground;
         let secondary_foreground = theme.secondary_foreground;
         let border = theme.border;
+        let small_text = typography::small(theme);
+        let regular_text = typography::regular(theme);
         let foundation_card = self.foundation_models_card(window, cx).into_any_element();
         let state = &self.providers;
         let builtins: Vec<&ProviderRow> = state
@@ -507,13 +510,13 @@ impl SettingsView {
                             .flex_1()
                             .child(
                                 div()
-                                    .text_size(px(14.0))
+                                    .text_size(regular_text)
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Providers"),
                             )
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(small_text)
                                     .text_color(secondary_foreground)
                                     .mt_0p5()
                                     .child(
@@ -661,13 +664,13 @@ impl SettingsView {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(small_text)
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Built into Pi"),
                             )
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(small_text)
                                     .text_color(muted_foreground)
                                     .child(
                                         "These providers update with Pi. Their connection details \
@@ -690,13 +693,13 @@ impl SettingsView {
                                         .gap_0p5()
                                         .child(
                                             div()
-                                                .text_size(px(13.0))
+                                                .text_size(small_text)
                                                 .font_weight(FontWeight::MEDIUM)
                                                 .child("More Pi providers"),
                                         )
                                         .child(
                                             div()
-                                                .text_size(px(13.0))
+                                                .text_size(small_text)
                                                 .text_color(muted_foreground)
                                                 .child("These stay Pi-native and can be set up whenever you need them."),
                                         ),
@@ -714,13 +717,13 @@ impl SettingsView {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(small_text)
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Custom connections"),
                             )
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(small_text)
                                     .text_color(muted_foreground)
                                     .child(
                                         "Configure local, private, and vendor-compatible endpoints here.",
@@ -774,7 +777,7 @@ impl SettingsView {
                                     .flex_wrap()
                                     .child(
                                         div()
-                                            .text_size(px(14.0))
+                                            .text_size(typography::regular(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .child("ChatGPT / Codex"),
                                     )
@@ -784,7 +787,7 @@ impl SettingsView {
                                             .px_2()
                                             .rounded_full()
                                             .bg(theme.info.opacity(0.10))
-                                            .text_size(px(13.0))
+                                            .text_size(typography::small(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme.info)
                                             .flex()
@@ -801,7 +804,7 @@ impl SettingsView {
                                             } else {
                                                 theme.muted
                                             })
-                                            .text_size(px(13.0))
+                                            .text_size(typography::small(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(if usable {
                                                 theme.success
@@ -822,7 +825,7 @@ impl SettingsView {
                             .child(
                                 div()
                                     .mt_1()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.secondary_foreground)
                                     .child(
                                         "Use your ChatGPT account for Codex models. OAuth credentials \
@@ -832,7 +835,7 @@ impl SettingsView {
                             .child(
                                 div()
                                     .mt_1()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.muted_foreground)
                                     .child(if needs_attention {
                                         "The stored ChatGPT sign-in was rejected or could not refresh. Sign in again to repair it.".to_string()
@@ -944,7 +947,7 @@ impl SettingsView {
                                     .gap_2()
                                     .child(
                                         div()
-                                            .text_size(px(14.0))
+                                            .text_size(typography::regular(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .child("Apple Foundation Models"),
                                     )
@@ -954,7 +957,7 @@ impl SettingsView {
                                             .px_2()
                                             .rounded_full()
                                             .bg(theme.info.opacity(0.10))
-                                            .text_size(px(13.0))
+                                            .text_size(typography::small(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme.info)
                                             .flex()
@@ -974,7 +977,7 @@ impl SettingsView {
                                             } else {
                                                 theme.muted
                                             })
-                                            .text_size(px(13.0))
+                                            .text_size(typography::small(theme))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(if matches!(
                                                 status.map(|status| status.state),
@@ -992,7 +995,7 @@ impl SettingsView {
                             .child(
                                 div()
                                     .mt_1()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.muted_foreground)
                                     .child(status.map_or_else(
                                         || "Checking Apple Foundation Models…".to_string(),
@@ -1002,7 +1005,7 @@ impl SettingsView {
                             .child(
                                 div()
                                     .mt_1()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.secondary_foreground)
                                     .child(
                                         "This native connection is used only for background chat titles \
@@ -1039,14 +1042,14 @@ impl SettingsView {
                             .flex_1()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Chat title provider"),
                             )
                             .child(
                                 div()
                                     .mt_0p5()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.muted_foreground)
                                     .child(
                                         "Automatic prefers this Mac, then uses the selected chat model only \
@@ -1555,7 +1558,7 @@ impl SettingsView {
                 .rounded(px(12.0))
                 .border_1()
                 .border_color(border)
-                .text_size(px(13.0))
+                .text_size(typography::small(theme))
                 .text_color(muted_foreground)
                 .child(empty.to_string())
                 .into_any_element();
@@ -1650,7 +1653,7 @@ impl SettingsView {
                             .items_center()
                             .child(
                                 div()
-                                    .text_size(px(14.0))
+                                    .text_size(typography::regular(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .child(label),
@@ -1661,7 +1664,7 @@ impl SettingsView {
                                     .px_2()
                                     .rounded_full()
                                     .bg(badge_color.opacity(0.10))
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(badge_color)
                                     .flex()
@@ -1672,7 +1675,7 @@ impl SettingsView {
                     .child(
                         div()
                             .mt_0p5()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(if is_builtin {
@@ -2007,7 +2010,7 @@ impl SettingsView {
                 .when_some(connection_notice, |column, (message, error)| {
                     column.child(
                         div()
-                            .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_size(typography::small(theme))
                             .text_color(if error {
                                 theme.danger
                             } else {
@@ -2024,7 +2027,7 @@ impl SettingsView {
                 div()
                     .w_full()
                     .p_4()
-                    .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                    .text_size(typography::small(theme))
                     .text_color(theme.muted_foreground)
                     .child(format!(
                         "No models loaded. Discover models after entering a valid endpoint{}",
@@ -2057,7 +2060,7 @@ impl SettingsView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .text_size(px(18.))
+                    .text_size(typography::heading2(theme))
                     .line_height(px(24.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(format!("Configure {}", label_value)),
@@ -2066,7 +2069,7 @@ impl SettingsView {
                 div()
                     .mt(px(6.))
                     .flex_shrink_0()
-                    .text_size(px(super::SETTINGS_TEXT_PX))
+                    .text_size(typography::regular(theme))
                     .text_color(theme.secondary_foreground)
                     .child("Set the connection details and models for this custom endpoint."),
             )
@@ -2090,7 +2093,7 @@ impl SettingsView {
                 view.child(
                     div()
                         .mt_3()
-                        .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                        .text_size(typography::small(theme))
                         .text_color(theme.danger)
                         .child(error),
                 )
@@ -2570,7 +2573,7 @@ pub(crate) fn provider_editor_modal(
             .on_click(|_event, _window, cx| cx.stop_propagation())
             .child(
                 div()
-                    .text_size(px(18.))
+                    .text_size(typography::heading2(&theme))
                     .line_height(px(24.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Remove this provider?"),
@@ -2578,7 +2581,7 @@ pub(crate) fn provider_editor_modal(
             .child(
                 div()
                     .mt_2()
-                    .text_size(px(super::SETTINGS_TEXT_PX))
+                    .text_size(typography::regular(&theme))
                     .text_color(theme.secondary_foreground)
                     .child(format!("“{label}” and its saved key will be removed.")),
             )

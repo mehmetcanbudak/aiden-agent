@@ -30,6 +30,7 @@ use gpui_component::{
 use crate::controls::Switch;
 
 use super::{settings_field, SettingsView};
+use crate::typography;
 
 const MANAGED_ROW_HEIGHT: f32 = 68.0;
 const DISCOVERED_ROW_HEIGHT: f32 = 72.0;
@@ -878,7 +879,7 @@ pub(crate) fn skills_modal(
                 .child(
                     div()
                         .flex_shrink_0()
-                        .text_size(px(18.))
+                        .text_size(typography::heading2(&theme))
                         .line_height(px(24.))
                         .font_semibold()
                         .child(title),
@@ -887,7 +888,7 @@ pub(crate) fn skills_modal(
                     div()
                         .mt(px(6.))
                         .flex_shrink_0()
-                        .text_size(px(super::SETTINGS_TEXT_PX))
+                        .text_size(typography::regular(&theme))
                         .text_color(theme.secondary_foreground)
                         .child("Define when the model should use this skill and the instructions it should follow."),
                 )
@@ -1019,7 +1020,7 @@ pub(crate) fn skills_modal(
                 .on_click(|_event, _window, cx| cx.stop_propagation())
                 .child(
                     div()
-                        .text_size(px(18.))
+                        .text_size(typography::heading2(&theme))
                         .line_height(px(24.))
                         .font_semibold()
                         .child("Delete this skill?"),
@@ -1027,7 +1028,7 @@ pub(crate) fn skills_modal(
                 .child(
                     div()
                         .mt(px(6.))
-                        .text_size(px(super::SETTINGS_TEXT_PX))
+                        .text_size(typography::regular(&theme))
                         .text_color(theme.secondary_foreground)
                         .child(format!("“{name}” will be removed.")),
                 )
@@ -1156,14 +1157,14 @@ fn skill_dialog_vertical_field(
                     v_flex()
                         .child(
                             div()
-                                .text_size(px(super::SETTINGS_TEXT_PX))
+                                .text_size(typography::regular(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(label),
                         )
                         .child(
                             div()
                                 .mt(px(2.))
-                                .text_size(px(super::SETTINGS_SMALL_TEXT_PX))
+                                .text_size(typography::small(theme))
                                 .text_color(theme.secondary_foreground)
                                 .child(description),
                         ),

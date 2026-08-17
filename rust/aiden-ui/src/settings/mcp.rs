@@ -30,6 +30,7 @@ use crate::controls::Switch;
 use gpui_tokio_bridge::Tokio;
 
 use super::{SettingsServices, SettingsView};
+use crate::typography;
 
 const NOTION_DARK_PNG: &[u8] =
     include_bytes!("../../../../renderer/assets/native-icons/mcp/notion-dark.png");
@@ -323,7 +324,7 @@ fn mcp_dialog_field(
                         .min_w(gpui::px(0.))
                         .child(
                             div()
-                                .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                                .text_size(typography::regular(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(label),
                         )
@@ -331,7 +332,7 @@ fn mcp_dialog_field(
                             column.child(
                                 div()
                                     .mt(gpui::px(2.))
-                                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.secondary_foreground)
                                     .child(description),
                             )
@@ -376,7 +377,7 @@ fn mcp_dialog_vertical_field(
                         .min_w(gpui::px(0.))
                         .child(
                             div()
-                                .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                                .text_size(typography::regular(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(label),
                         )
@@ -384,7 +385,7 @@ fn mcp_dialog_vertical_field(
                             column.child(
                                 div()
                                     .mt(gpui::px(2.))
-                                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.secondary_foreground)
                                     .child(description),
                             )
@@ -468,7 +469,7 @@ impl SettingsView {
                             .min_w(gpui::px(0.))
                             .child(
                                 div()
-                                    .text_size(gpui::px(14.))
+                                    .text_size(typography::regular(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("MCP Servers"),
                             )
@@ -842,7 +843,7 @@ impl SettingsView {
             )
             .child(
                 div()
-                    .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                    .text_size(typography::small(theme))
                     .text_color(theme.secondary_foreground)
                     .child(preset.tagline),
             )
@@ -854,7 +855,7 @@ impl SettingsView {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(preset.vendor),
                     )
@@ -1591,7 +1592,7 @@ impl SettingsView {
                                         .flex()
                                         .items_center()
                                         .bg(theme.success.opacity(0.1))
-                                        .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                                        .text_size(typography::small(theme))
                                         .text_color(theme.success)
                                         .child("Authorized"),
                                 )
@@ -1637,7 +1638,7 @@ impl SettingsView {
                             .flex()
                             .items_center()
                             .bg(theme.success.opacity(0.1))
-                            .text_size(gpui::px(super::SETTINGS_SMALL_TEXT_PX))
+                            .text_size(typography::small(theme))
                             .text_color(theme.success)
                             .child("Ready"),
                     )
@@ -1660,7 +1661,7 @@ impl SettingsView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .text_size(gpui::px(18.))
+                    .text_size(typography::heading2(theme))
                     .line_height(gpui::px(24.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(title),
@@ -1669,7 +1670,7 @@ impl SettingsView {
                 div()
                     .mt(gpui::px(6.))
                     .flex_shrink_0()
-                    .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                    .text_size(typography::regular(theme))
                     .text_color(theme.secondary_foreground)
                     .child(description),
             )
@@ -1771,7 +1772,7 @@ impl SettingsView {
             .shadow_lg()
             .child(
                 div()
-                    .text_size(gpui::px(18.))
+                    .text_size(typography::heading2(theme))
                     .line_height(gpui::px(24.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Remove this MCP server?"),
@@ -1779,7 +1780,7 @@ impl SettingsView {
             .child(
                 div()
                     .mt_2()
-                    .text_size(gpui::px(super::SETTINGS_TEXT_PX))
+                    .text_size(typography::regular(theme))
                     .text_color(theme.secondary_foreground)
                     .child(format!("“{label}” will be disconnected and removed.")),
             )

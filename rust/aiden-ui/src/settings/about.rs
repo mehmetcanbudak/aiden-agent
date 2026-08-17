@@ -13,7 +13,8 @@ use gpui_component::{
 };
 use gpui_tokio_bridge::Tokio;
 
-use super::{settings_field, settings_fieldset, SettingsView, SETTINGS_SECTION_TITLE_PX};
+use super::{settings_field, settings_fieldset, SettingsView};
+use crate::typography;
 
 pub const APP_NAME: &str = "Aiden Agent";
 pub const REPOSITORY_URL: &str = "https://github.com/sambitcreate/aiden-agent";
@@ -110,14 +111,14 @@ impl SettingsView {
                     .min_w(gpui::px(0.))
                     .child(
                         div()
-                            .text_size(gpui::px(SETTINGS_SECTION_TITLE_PX))
+                            .text_size(typography::large_strong(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .child(APP_NAME),
                     )
                     .child(
                         div()
                             .mt(gpui::px(2.))
-                            .text_size(gpui::px(13.))
+                            .text_size(typography::small(&theme))
                             .text_color(theme.secondary_foreground)
                             .child(format!("Version {version} · Beta · {environment}")),
                     )
@@ -187,7 +188,7 @@ impl SettingsView {
                         .py_2()
                         .rounded(gpui::px(12.))
                         .bg(theme.danger.opacity(0.12))
-                        .text_size(gpui::px(13.))
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(message),
                 )

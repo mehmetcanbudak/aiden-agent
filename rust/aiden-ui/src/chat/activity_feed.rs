@@ -645,14 +645,14 @@ fn claim_warning(theme: gpui_component::theme::Theme) -> impl IntoElement {
                 .gap_0p5()
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(theme.warning)
                         .child("Success not verified"),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("A tool action may not have completed."),
                 ),
@@ -1062,8 +1062,10 @@ mod tests {
         // literals, so `include_str!` over the whole file would count itself.
         let source = include_str!("activity_feed.rs");
         let render = source.split("#[cfg(test)]").next().expect("render source");
-        // The summary and the issue count read as one heading over the trail.
-        assert_eq!(render.matches("typography::small(&theme)").count(), 2);
+        // Four `small` sites: the summary and the issue count, which read as one
+        // heading over the trail, plus the claim check's title and body, which
+        // activity-feed.tsx renders as small-strong over small.
+        assert_eq!(render.matches("typography::small(&theme)").count(), 4);
         // Ticker and trail rows each carry a verb and an object.
         assert_eq!(render.matches("typography::mini(&theme)").count(), 4);
         // Within a row the verb carries the weight and its object stays normal.

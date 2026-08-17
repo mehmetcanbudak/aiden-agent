@@ -3786,7 +3786,7 @@ impl AppState {
                         v_flex()
                             .mt_2()
                             .gap_2()
-                            .text_size(px(crate::settings::SETTINGS_TEXT_PX))
+                            .text_size(typography::regular(theme))
                             .text_color(theme.secondary_foreground)
                             .child("This removes your profile, app preferences, custom provider and MCP setup, saved API keys and OAuth sessions, and cached benchmark data.")
                             .child("Chats, projects, schedules, skills, and downloaded local models stay. Aiden will restart and reopen onboarding.")

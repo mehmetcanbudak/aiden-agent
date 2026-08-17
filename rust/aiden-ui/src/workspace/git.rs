@@ -20,6 +20,8 @@ use crate::controls::Switch;
 use crate::app::AppState;
 use crate::services::appearance::pointer_cursors_enabled;
 
+use crate::typography;
+
 use super::state::{
     commit_selection_description, filter_branches, git_chip_from_info, order_local_branches,
     Overlay, WorkspaceBarSnapshot, WorkspaceState,
@@ -113,7 +115,13 @@ impl AppState {
                         .flex_shrink_0(),
                 )
             })
-            .child(div().text_xs().max_w(px(180.)).truncate().child(text))
+            .child(
+                div()
+                    .text_size(typography::small(&theme))
+                    .max_w(px(180.))
+                    .truncate()
+                    .child(text),
+            )
             .when(ahead > 0, |el| {
                 el.child(
                     h_flex()
@@ -126,7 +134,7 @@ impl AppState {
                         )
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child(ahead.to_string()),
                         ),
@@ -144,7 +152,7 @@ impl AppState {
                         )
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.muted_foreground)
                                 .child(behind.to_string()),
                         ),
@@ -217,7 +225,7 @@ pub(crate) fn branches_content(
                     .py_1p5()
                     .bg(theme.danger)
                     .text_color(theme.danger_foreground)
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .child(error),
             )
         })
@@ -226,7 +234,7 @@ pub(crate) fn branches_content(
                 .px_3()
                 .pt_2()
                 .pb_1()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.muted_foreground)
                 .child("Local branches"),
@@ -246,7 +254,7 @@ pub(crate) fn branches_content(
                             .w_full()
                             .px_2()
                             .py_2()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("No branches found."),
                     )
@@ -269,7 +277,7 @@ pub(crate) fn branches_content(
                             .px_3()
                             .pt_2()
                             .pb_1()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.muted_foreground)
                             .child("Remote tracking refs"),
@@ -405,7 +413,7 @@ fn branch_row(
                 .gap_0p5()
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(theme))
                         .font_weight(FontWeight::MEDIUM)
                         .truncate()
                         .child(display),
@@ -413,7 +421,7 @@ fn branch_row(
                 .when_some(subtitle, |el, subtitle| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(subtitle),
@@ -422,7 +430,7 @@ fn branch_row(
                 .when(is_unborn_current, |el| {
                     el.child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child("Create the first commit to continue"),
                     )
@@ -433,7 +441,8 @@ fn branch_row(
         })
 }
 
-fn remote_row(name: &str, muted: gpui::Hsla, _cx: &mut App) -> impl IntoElement {
+fn remote_row(name: &str, muted: gpui::Hsla, cx: &mut App) -> impl IntoElement {
+    let theme = cx.theme().clone();
     let name = name.to_string();
     h_flex()
         .id(ElementId::Name(SharedString::from(format!(
@@ -452,10 +461,15 @@ fn remote_row(name: &str, muted: gpui::Hsla, _cx: &mut App) -> impl IntoElement 
                 .flex_1()
                 .min_w(px(0.))
                 .gap_0p5()
-                .child(div().text_sm().truncate().child(name))
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
+                        .truncate()
+                        .child(name),
+                )
+                .child(
+                    div()
+                        .text_size(typography::small(&theme))
                         .text_color(muted)
                         .child("Create a local branch to switch"),
                 ),
@@ -478,7 +492,7 @@ fn create_form(
         .gap_2()
         .child(
             div()
-                .text_xs()
+                .text_size(typography::small(theme))
                 .text_color(theme.muted_foreground)
                 .child(format!(
                     "New branch from {}",
@@ -534,11 +548,14 @@ fn loading_or_error(
         .p_3()
         .gap_2()
         .child(
-            div().text_sm().text_color(theme.muted_foreground).child(
-                branch_error
-                    .clone()
-                    .unwrap_or_else(|| "Loading branches…".to_string()),
-            ),
+            div()
+                .text_size(typography::small(theme))
+                .text_color(theme.muted_foreground)
+                .child(
+                    branch_error
+                        .clone()
+                        .unwrap_or_else(|| "Loading branches…".to_string()),
+                ),
         )
         .when(branch_error.is_some(), |el| {
             el.child(
@@ -585,7 +602,7 @@ pub(crate) fn commit_content(
             .p_3()
             .child(
                 div()
-                    .text_sm()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Loading the change review…"),
             )
@@ -621,7 +638,7 @@ pub(crate) fn commit_content(
         .gap_3()
         .child(
             div()
-                .text_sm()
+                .text_size(typography::small(&theme))
                 .text_color(theme.muted_foreground)
                 .child(format!(
                     "Commit the reviewed snapshot to {branch}. Git hooks and signing settings apply; push stays separate."
@@ -633,7 +650,7 @@ pub(crate) fn commit_content(
                     .gap_2()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.muted_foreground)
                             .child("Commit message"),
@@ -651,7 +668,7 @@ pub(crate) fn commit_content(
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.muted_foreground)
                             .child("Changes to include"),
@@ -703,7 +720,7 @@ pub(crate) fn commit_content(
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.accent_foreground)
                             .child("Creating an immutable local commit…"),
                     ),
@@ -718,7 +735,7 @@ pub(crate) fn commit_content(
                     .rounded_md()
                     .bg(theme.warning)
                     .text_color(theme.warning_foreground)
-                    .text_sm()
+                    .text_size(typography::small(&theme))
                     .child(reason),
             )
         })
@@ -733,7 +750,7 @@ pub(crate) fn commit_content(
                     .rounded_md()
                     .bg(theme.danger)
                     .text_color(theme.danger_foreground)
-                    .child(div().text_sm().child(error))
+                    .child(div().text_size(typography::small(&theme)).child(error))
                     .child(
                         h_flex()
                             .gap_2()
@@ -859,7 +876,7 @@ fn mode_row(
                 .gap_0p5()
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(if disabled {
                             theme.muted_foreground
@@ -870,7 +887,7 @@ fn mode_row(
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(description),
                 ),
@@ -907,7 +924,7 @@ pub(crate) fn push_content(
             .p_3()
             .child(
                 div()
-                    .text_sm()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Loading the push state…"),
             )
@@ -945,7 +962,7 @@ pub(crate) fn push_content(
         .gap_3()
         .child(
             div()
-                .text_sm()
+                .text_size(typography::small(&theme))
                 .text_color(theme.muted_foreground)
                 .child(format!(
                     "Push the reviewed {branch} commit. Aiden uses a normal non-force push and does not fetch first."
@@ -957,7 +974,7 @@ pub(crate) fn push_content(
                     .gap_2()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.muted_foreground)
                             .child("Remote"),
@@ -993,7 +1010,7 @@ pub(crate) fn push_content(
                             .when(capability.remotes.is_empty(), |el| {
                                 el.child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::small(&theme))
                                         .text_color(theme.muted_foreground)
                                         .child("No remotes configured."),
                                 )
@@ -1001,7 +1018,7 @@ pub(crate) fn push_content(
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.muted_foreground)
                             .child("Destination branch"),
@@ -1022,7 +1039,7 @@ pub(crate) fn push_content(
                     .border_color(theme.border)
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(&theme))
                             .text_color(theme.foreground)
                             .child("Remember as upstream"),
                     )
@@ -1046,7 +1063,7 @@ pub(crate) fn push_content(
                     .py_2()
                     .bg(theme.secondary)
                     .text_color(theme.secondary_foreground)
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .child(if ahead > 0 {
                         format!("{ahead} commit{} ahead of the last-fetched upstream. Pre-push hooks and configured Git authentication may run; force push and submodule recursion are never used by default.", if ahead == 1 { "" } else { "s" })
                     } else {
@@ -1065,7 +1082,7 @@ pub(crate) fn push_content(
                             .gap_2()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.foreground)
                                     .child("Force push with lease"),
                             )
@@ -1087,7 +1104,7 @@ pub(crate) fn push_content(
                                 .gap_1()
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::small(&theme))
                                         .text_color(theme.muted_foreground)
                                         .child(format!(
                                             "Force-with-lease overwrites the remote ref only if it still matches. Type “{destination}” to confirm."
@@ -1111,7 +1128,7 @@ pub(crate) fn push_content(
                     .child(Spinner::new().small().color(theme.accent_foreground))
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.accent_foreground)
                             .child("Pushing the frozen commit… Workspace switching and dismissal stay locked."),
                     ),
@@ -1126,7 +1143,7 @@ pub(crate) fn push_content(
                     .rounded_md()
                     .bg(theme.warning)
                     .text_color(theme.warning_foreground)
-                    .text_sm()
+                    .text_size(typography::small(&theme))
                     .child(reason),
             )
         })
@@ -1141,7 +1158,7 @@ pub(crate) fn push_content(
                     .rounded_md()
                     .bg(theme.danger)
                     .text_color(theme.danger_foreground)
-                    .child(div().text_sm().child(error))
+                    .child(div().text_size(typography::small(&theme)).child(error))
                     .child(
                         h_flex()
                             .gap_2()

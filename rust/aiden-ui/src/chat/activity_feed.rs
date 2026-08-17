@@ -19,35 +19,13 @@ use gpui_component::{
 
 use std::time::Duration;
 
+use crate::typography;
+
 const TICKER_ROWS: usize = 3;
 const TICKER_ROW_HEIGHT_PX: f32 = 24.0;
-
-/// Type scale mirrored from Electron's semantic tokens in `renderer/styles.css`.
-/// Those tokens are `calc()` offsets from `--ui-font-size`, so they track the
-/// user's UI font-size setting rather than sitting at fixed pixels. The Rust
-/// side of that setting is `theme.font_size` (it is what gpui-component feeds
-/// to `rem_size`), so derive from it: pinning `px(13.)` would look right at the
-/// default 14pt and then stop growing across the 12-18pt range.
-///
-/// The summary sits one step above the detail rows so a collapsed feed reads as
-/// a heading over its own trail; within a row the verb is medium and its object
-/// normal.
-///
-/// `--text-small` / `--text-small-strong`.
-const SUMMARY_TEXT_OFFSET_PX: f32 = -1.0;
-/// `--text-mini`.
-const DETAIL_TEXT_OFFSET_PX: f32 = -3.0;
 /// Electron's trail row is `min-h-5`. Tailwind spacing is relative to the 16px
 /// root, not to `--ui-font-size`, so this one really is a fixed 20px.
 const TRAIL_ROW_MIN_HEIGHT_PX: f32 = 20.0;
-
-fn summary_text_size(theme: &gpui_component::theme::Theme) -> gpui::Pixels {
-    theme.font_size + px(SUMMARY_TEXT_OFFSET_PX)
-}
-
-fn detail_text_size(theme: &gpui_component::theme::Theme) -> gpui::Pixels {
-    theme.font_size + px(DETAIL_TEXT_OFFSET_PX)
-}
 
 /// Render-owned disclosure state for one generation timeline. The state is
 /// keyed by `generation_id`, so a new turn starts collapsed while a user's
@@ -467,13 +445,13 @@ pub fn timeline_feed(
                 &summary,
                 running && live && !motion_reduced,
                 theme.muted_foreground,
-                summary_text_size(&theme),
+                typography::small(&theme),
             ))
         })
         .when(issues > 0, |el| {
             el.child(
                 div()
-                    .text_size(summary_text_size(&theme))
+                    .text_size(typography::small(&theme))
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(theme.warning)
                     .child(if issues == 1 {
@@ -598,7 +576,7 @@ fn ticker_row(
                 .min_w(px(0.))
                 .flex_1()
                 .truncate()
-                .text_size(detail_text_size(&theme))
+                .text_size(typography::mini(&theme))
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(text_color)
                 .child(line.verb),
@@ -608,7 +586,7 @@ fn ticker_row(
                 div()
                     .max_w(px(240.))
                     .truncate()
-                    .text_size(detail_text_size(&theme))
+                    .text_size(typography::mini(&theme))
                     .font_weight(gpui::FontWeight::NORMAL)
                     .text_color(object_color)
                     .child(object),
@@ -756,7 +734,7 @@ fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl In
                 .gap_1()
                 .child(
                     div()
-                        .text_size(detail_text_size(&theme))
+                        .text_size(typography::mini(&theme))
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .text_color(text_color)
                         .child(line.verb),
@@ -764,7 +742,7 @@ fn feed_row(step: &AgentStep, index: usize, live: bool, cx: &mut App) -> impl In
                 .when_some(line.object, |el, object| {
                     el.child(
                         div()
-                            .text_size(detail_text_size(&theme))
+                            .text_size(typography::mini(&theme))
                             .font_weight(gpui::FontWeight::NORMAL)
                             .text_color(theme.muted_foreground)
                             .truncate()
@@ -1074,30 +1052,20 @@ mod tests {
 
     #[test]
     fn typography_keeps_summaries_above_compact_details() {
-        // Electron declares `--text-small: calc(var(--ui-font-size) - 1px)` and
-        // `--text-mini: calc(var(--ui-font-size) - 3px)`. A flat scale here is
-        // the regression upstream's "restore agent activity hierarchy" fixed.
-        assert_eq!(SUMMARY_TEXT_OFFSET_PX, -1.0);
-        assert_eq!(DETAIL_TEXT_OFFSET_PX, -3.0);
-        const { assert!(SUMMARY_TEXT_OFFSET_PX > DETAIL_TEXT_OFFSET_PX) };
-
-        // Offsets, not fixed pixels: the sizes have to keep tracking the user's
-        // UI font size across the 12-18pt range appearance settings allow.
-        for (ui_font_size, small, mini) in
-            [(12.0, 11.0, 9.0), (14.0, 13.0, 11.0), (18.0, 17.0, 15.0)]
-        {
-            assert_eq!(ui_font_size + SUMMARY_TEXT_OFFSET_PX, small);
-            assert_eq!(ui_font_size + DETAIL_TEXT_OFFSET_PX, mini);
-        }
-
+        // Electron renders the summary at `--text-small-strong` over detail rows
+        // at `--text-mini`. A flat scale here is the regression upstream's
+        // "restore agent activity hierarchy" fixed. The scale itself — that the
+        // tokens are offsets and stay ordered across 12-18pt — is covered by
+        // `crate::typography`; this only pins which token each row uses.
+        //
         // Count only the render half; this module's own assertions repeat these
         // literals, so `include_str!` over the whole file would count itself.
         let source = include_str!("activity_feed.rs");
         let render = source.split("#[cfg(test)]").next().expect("render source");
         // The summary and the issue count read as one heading over the trail.
-        assert_eq!(render.matches("summary_text_size(&theme)").count(), 2);
+        assert_eq!(render.matches("typography::small(&theme)").count(), 2);
         // Ticker and trail rows each carry a verb and an object.
-        assert_eq!(render.matches("detail_text_size(&theme)").count(), 4);
+        assert_eq!(render.matches("typography::mini(&theme)").count(), 4);
         // Within a row the verb carries the weight and its object stays normal.
         assert_eq!(
             render

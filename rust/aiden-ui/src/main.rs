@@ -71,6 +71,8 @@ mod settings;
 mod shell;
 mod shortcut_runtime;
 #[allow(dead_code)]
+mod typography;
+#[allow(dead_code)]
 mod workspace;
 #[allow(dead_code)]
 mod workspace_files;

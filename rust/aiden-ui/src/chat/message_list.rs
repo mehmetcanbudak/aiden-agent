@@ -34,7 +34,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use aiden_core::{
-    parse_subagent_message_reference_v1, Attachment, ChatMessage, ChatRole,
+    parse_subagent_message_reference_v1, AgentStep, Attachment, ChatMessage, ChatRole,
     SubagentMessageReferenceV1, SubagentRunSnapshotV1, SubagentRunState,
 };
 use gpui::{
@@ -53,6 +53,9 @@ use gpui_component::{
 
 use crate::app::AppState;
 use crate::chat::activity_feed::timeline_feed;
+use crate::chat::assistant_presentation::{
+    activity_timeline_fragment, assistant_presentation_rows, AssistantPresentationRow,
+};
 use crate::chat::composer::{
     attachment_image_element, composer_draft, CHAT_CONTENT_MAX_WIDTH_PX, CHAT_DOCK_GUTTER_PX,
 };
@@ -466,6 +469,58 @@ fn render_assistant_message(
         |_, _| ReasoningDisclosureState::default(),
     );
     let reasoning_expanded = reasoning_disclosure.read(cx).expanded;
+    // A version-3 timeline anchors its steps to offsets into this text, so the
+    // turn can be replayed in the order it happened. Older records return None
+    // and keep the activity-above-the-message layout.
+    let rows = assistant_presentation_rows(&message.content, message.timeline.as_ref());
+    let subagent_activity_key = rows.as_ref().and_then(|rows| {
+        rows.iter().find_map(|row| match row {
+            AssistantPresentationRow::Activity { key, steps, .. }
+                if steps.iter().any(
+                    |step| matches!(step, AgentStep::Tool(tool) if tool.tool_name == "subagent"),
+                ) =>
+            {
+                Some(key.clone())
+            }
+            _ => None,
+        })
+    });
+    // Built before the element chain so these borrows of window/cx end first.
+    let body: Vec<gpui::AnyElement> = match (&rows, message.timeline.as_ref()) {
+        (Some(rows), Some(timeline)) => {
+            let mut body = Vec::with_capacity(rows.len());
+            for row in rows {
+                match row {
+                    AssistantPresentationRow::Text { key, content, .. } => {
+                        body.push(
+                            assistant_markdown(
+                                &format!("assistant-markdown-{}-{key}", message.id),
+                                content.clone(),
+                                window,
+                                cx,
+                            )
+                            .into_any_element(),
+                        );
+                    }
+                    AssistantPresentationRow::Activity { key, steps, .. } => {
+                        let fragment = activity_timeline_fragment(timeline, steps.clone());
+                        body.push(timeline_feed(&fragment, false, key, window, cx));
+                        if subagent_activity_key.as_deref() == Some(key.as_str()) {
+                            body.push(subagent_chips_for_message(message, cx).into_any_element());
+                        }
+                    }
+                }
+            }
+            body
+        }
+        _ => vec![assistant_markdown(
+            &format!("assistant-markdown-{}", message.id),
+            message.content.clone(),
+            window,
+            cx,
+        )
+        .into_any_element()],
+    };
     v_flex()
         .id(ElementId::Name(SharedString::from(format!(
             "assistant-message-{}",
@@ -480,10 +535,12 @@ fn render_assistant_message(
             message
                 .timeline
                 .as_ref()
-                .filter(|timeline| !timeline.steps.is_empty()),
-            |el, timeline| el.child(timeline_feed(timeline, false, window, cx)),
+                .filter(|timeline| !timeline.steps.is_empty() && rows.is_none()),
+            |el, timeline| el.child(timeline_feed(timeline, false, "", window, cx)),
         )
-        .child(subagent_chips_for_message(message, cx))
+        .when(rows.is_none() || subagent_activity_key.is_none(), |el| {
+            el.child(subagent_chips_for_message(message, cx))
+        })
         .when_some(
             message.reasoning.as_ref().filter(|r| !r.trim().is_empty()),
             |el, reasoning| {
@@ -522,12 +579,7 @@ fn render_assistant_message(
                 )
             },
         )
-        .child(assistant_markdown(
-            &format!("assistant-markdown-{}", message.id),
-            message.content.clone(),
-            window,
-            cx,
-        ))
+        .children(body)
         .child(
             h_flex()
                 .w_full()
@@ -630,7 +682,7 @@ fn render_stream_bubble(
             live_timeline
                 .as_ref()
                 .filter(|timeline| !timeline.steps.is_empty()),
-            |el, timeline| el.child(timeline_feed(timeline, true, window, cx)),
+            |el, timeline| el.child(timeline_feed(timeline, true, "", window, cx)),
         )
         .when(!live_subagents.is_empty(), |el| {
             el.child(subagent_chips(

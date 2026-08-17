@@ -373,9 +373,13 @@ pub fn summarize_activity(timeline: &GenerationTimeline) -> String {
 /// The summary is a real focusable button, so Enter/Space and pointer clicks
 /// share the same disclosure state. Issues and claim-check warnings auto-open
 /// once per generation, matching the Electron attention contract.
+/// `scope` distinguishes several feeds rendered for one generation. A v3
+/// timeline is split into a fragment per text boundary, and those fragments are
+/// siblings, so their element ids and disclosure state must not collide.
 pub fn timeline_feed(
     timeline: &GenerationTimeline,
     live: bool,
+    scope: &str,
     window: &mut Window,
     cx: &mut App,
 ) -> gpui::AnyElement {
@@ -391,7 +395,7 @@ pub fn timeline_feed(
         .is_some_and(|appearance| appearance.motion_reduced);
     let state = window.use_keyed_state(
         ElementId::Name(SharedString::from(format!(
-            "activity-feed-state-{}",
+            "activity-feed-state-{}{scope}",
             timeline.generation_id
         ))),
         cx,
@@ -415,7 +419,7 @@ pub fn timeline_feed(
     let ticker_steps = timeline.steps.iter().skip(ticker_start);
     let summary_state = state.clone();
     let summary_id = ElementId::Name(SharedString::from(format!(
-        "activity-summary-{}",
+        "activity-summary-{}{scope}",
         timeline.generation_id
     )));
     let summary_content = h_flex()
@@ -487,14 +491,18 @@ pub fn timeline_feed(
         .child(summary_content);
 
     v_flex()
-        .id("activity-feed")
+        .id(ElementId::Name(SharedString::from(format!(
+            "activity-feed{scope}"
+        ))))
         .w_full()
         .gap_0p5()
         .child(summary_button)
         .when(open, |el| {
             el.child(
                 v_flex()
-                    .id("activity-trail")
+                    .id(ElementId::Name(SharedString::from(format!(
+                        "activity-trail{scope}"
+                    ))))
                     .w_full()
                     .pl_2p5()
                     .children(
@@ -503,7 +511,7 @@ pub fn timeline_feed(
                         }),
                     )
                     .when(has_unverified_success_claim(timeline), |el| {
-                        el.child(claim_warning(theme.clone()))
+                        el.child(claim_warning(theme.clone(), scope))
                     }),
             )
         })
@@ -622,9 +630,11 @@ fn pulse(progress: f32) -> f32 {
     0.5 + 0.5 * (progress * std::f32::consts::TAU).cos()
 }
 
-fn claim_warning(theme: gpui_component::theme::Theme) -> impl IntoElement {
+fn claim_warning(theme: gpui_component::theme::Theme, scope: &str) -> impl IntoElement {
     h_flex()
-        .id("activity-claim-warning")
+        .id(ElementId::Name(SharedString::from(format!(
+            "activity-claim-warning{scope}"
+        ))))
         .w_full()
         .gap_2()
         .items_start()

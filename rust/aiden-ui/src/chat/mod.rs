@@ -1,6 +1,7 @@
 //! Chat pane surface: transcript, message bubbles, and composer support.
 
 pub mod activity_feed;
+pub mod assistant_presentation;
 pub mod chat_pane;
 pub mod composer;
 pub(crate) mod markdown;

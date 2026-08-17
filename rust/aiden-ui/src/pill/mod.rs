@@ -52,6 +52,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use crate::typography;
 use aiden_core::appearance::AppearanceConfig;
 use aiden_core::dictation::DictationStatePayload;
 use gpui::prelude::FluentBuilder as _;
@@ -339,7 +340,7 @@ impl PillView {
                         .child(spinner)
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.muted_foreground)
                                 .child(phase.label().unwrap_or_default()),
                         )
@@ -355,7 +356,7 @@ impl PillView {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(theme))
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .child(phase.label().unwrap_or_default()),
                     )
@@ -370,14 +371,14 @@ impl PillView {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(theme))
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .child(phase.label().unwrap_or_default()),
                     )
                     .into_any_element(),
                 Phase::Error => div()
                     .max_w(px(224.0))
-                    .text_sm()
+                    .text_size(typography::small(theme))
                     .text_color(theme.danger)
                     .truncate()
                     .child(self.error_copy())
@@ -439,7 +440,7 @@ impl PillView {
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::mini(theme))
                     .text_color(theme.muted_foreground)
                     .child(format_elapsed(self.state.elapsed_seconds)),
             )

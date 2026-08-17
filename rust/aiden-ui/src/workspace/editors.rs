@@ -10,6 +10,7 @@ use gpui::{
 use gpui_component::{h_flex, input::Input, v_flex, ActiveTheme, Icon, IconName, Sizable as _};
 
 use super::state::WorkspaceState;
+use crate::typography;
 
 /// The editors picker overlay: detected editors (priority-ranked, Finder
 /// last); selecting one launches it and closes the overlay.
@@ -62,7 +63,7 @@ pub(crate) fn editors_content(
                             .w_full()
                             .px_2()
                             .py_2()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(if loading {
                                 "Looking for installed editors…"
@@ -110,7 +111,7 @@ pub(crate) fn editors_content(
                         .child(
                             div()
                                 .flex_1()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
                                 .child(label),

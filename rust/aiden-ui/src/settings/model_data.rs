@@ -43,6 +43,7 @@ use gpui_component::{
 use gpui_tokio_bridge::Tokio;
 
 use super::SettingsView;
+use crate::typography;
 
 /// The device-local cache filename (`CACHE_FILE` in the TS runtime).
 const AA_CACHE_FILE: &str = "artificial-analysis-model-cache.json";
@@ -199,13 +200,13 @@ impl SettingsView {
                 v_flex()
                     .child(
                         div()
-                            .text_lg()
+                            .text_size(typography::large_strong(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Model data"),
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .mt_0p5()
                             .child(
@@ -248,7 +249,7 @@ impl SettingsView {
                             .items_center()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("Artificial Analysis"),
                             )
@@ -258,7 +259,7 @@ impl SettingsView {
                                     .py_0p5()
                                     .rounded_md()
                                     .bg(theme.accent.opacity(0.14))
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.accent)
                                     .child(status_label),
                             ),
@@ -301,10 +302,15 @@ impl SettingsView {
                 v_flex()
                     .w_full()
                     .gap_1()
-                    .child(div().text_sm().text_color(theme.foreground).child(detail))
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
+                            .text_color(theme.foreground)
+                            .child(detail),
+                    )
+                    .child(
+                        div()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child(format!(
                                 "{cached} cached · {ranked} ranked · Fetched {fetched}",
@@ -315,7 +321,7 @@ impl SettingsView {
                     .when_some(state.aa_error.clone(), |el, message| {
                         el.child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .mt_0p5()
                                 .text_color(theme.danger)
                                 .child(message),
@@ -328,18 +334,23 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Connection"),
                     )
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(
-                        "Bring your own key. Connecting validates it and fetches the \
+                    .child(
+                        div()
+                            .text_size(typography::small(theme))
+                            .text_color(theme.muted_foreground)
+                            .child(
+                                "Bring your own key. Connecting validates it and fetches the \
                                  first local snapshot; later updates happen only when you press \
                                  Fetch latest. A Free key works with Aiden's model-list endpoint. \
                                  The key is stored encrypted on this Mac and sent only to \
                                  Artificial Analysis when you connect or fetch.",
-                    )),
+                            ),
+                    ),
             )
             .when_some(state.key_editor.as_ref(), |el, editor| {
                 el.child(

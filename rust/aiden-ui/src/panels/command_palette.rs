@@ -29,6 +29,7 @@ use gpui_component::{
 };
 
 use crate::settings::catalog::SETTINGS_DESTINATIONS;
+use crate::typography;
 
 /// `COMMAND_PALETTE_RECENT_LIMIT` in the renderer.
 pub const PALETTE_RECENT_LIMIT: usize = 12;
@@ -1203,7 +1204,7 @@ impl Render for CommandPalette {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Command palette — press ⌘K"),
                     ),
@@ -1278,7 +1279,7 @@ fn palette_content(
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(format!("No {} match “{}”.", mode.lowercase(), query.trim())),
             )
@@ -1341,14 +1342,14 @@ fn palette_content(
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.secondary)
                         .child(mode.label()),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("/"),
                 )
@@ -1356,7 +1357,7 @@ fn palette_content(
                     div()
                         .flex_1()
                         .truncate()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Aiden"),
                 )
@@ -1366,7 +1367,7 @@ fn palette_content(
                         .px_1p5()
                         .py_0p5()
                         .bg(theme.input)
-                        .text_xs()
+                        .text_size(typography::mini(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Esc"),
                 ),
@@ -1432,7 +1433,7 @@ fn palette_content(
                 .items_center()
                 .border_t_1()
                 .border_color(theme.border)
-                .text_xs()
+                .text_size(typography::mini(&theme))
                 .text_color(theme.muted_foreground)
                 .child(div().child("↑↓ Navigate"))
                 .child(div().child("↩ Run"))
@@ -1625,7 +1626,7 @@ fn palette_row(
             div()
                 .flex_1()
                 .min_w(px(0.))
-                .text_sm()
+                .text_size(typography::small(&theme))
                 .truncate()
                 .child(title),
         )
@@ -1633,7 +1634,7 @@ fn palette_row(
             el.child(
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .opacity(0.7)
                     .truncate()
                     .child(detail),

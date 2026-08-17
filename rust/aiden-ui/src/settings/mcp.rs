@@ -475,7 +475,7 @@ impl SettingsView {
                             )
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .whitespace_normal()
                                     .text_color(theme.muted_foreground)
                                     .mt_0p5()
@@ -504,7 +504,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(theme.danger.opacity(0.12))
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(message),
                 )
@@ -516,7 +516,7 @@ impl SettingsView {
                         .gap_2()
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(typography::small(&theme))
                                 .font_weight(FontWeight::MEDIUM)
                                 .child(format!("Configured MCP servers · {}", state.servers.len())),
                         )
@@ -539,13 +539,13 @@ impl SettingsView {
                         v_flex()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Manual MCP server setup"),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Add a local command or remote MCP server."),
                             ),
@@ -576,7 +576,7 @@ impl SettingsView {
                 .rounded_lg()
                 .border_1()
                 .border_color(border)
-                .text_sm()
+                .text_size(typography::small(&theme))
                 .text_color(muted_foreground)
                 .child("No MCP servers configured yet.")
                 .into_any_element();
@@ -655,7 +655,7 @@ impl SettingsView {
                             .items_center()
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::regular(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .truncate()
                                     .child(if name.is_empty() {
@@ -670,7 +670,7 @@ impl SettingsView {
                                     .py_0p5()
                                     .rounded_md()
                                     .bg(theme.muted)
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .text_color(theme.muted_foreground)
                                     .child(transport),
                             )
@@ -681,7 +681,7 @@ impl SettingsView {
                                         .py_0p5()
                                         .rounded_md()
                                         .bg(theme.info.opacity(0.14))
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .text_color(theme.info)
                                         .child("built-in"),
                                 )
@@ -689,7 +689,7 @@ impl SettingsView {
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .truncate()
                             .child(subtitle),
@@ -748,13 +748,13 @@ impl SettingsView {
                 v_flex()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Popular MCPs"),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .child("Hand-picked MCP servers with a simple setup."),
                     ),
@@ -837,7 +837,7 @@ impl SettingsView {
             )
             .child(
                 div()
-                    .text_sm()
+                    .text_size(typography::regular(theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(preset.name),
             )
@@ -873,7 +873,7 @@ impl SettingsView {
                                         } else {
                                             theme.muted
                                         })
-                                        .text_xs()
+                                        .text_size(typography::small(theme))
                                         .text_color(if badge == "Ready" {
                                             theme.success
                                         } else {
@@ -1038,7 +1038,7 @@ impl SettingsView {
                     .justify_between()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title),
                     )
@@ -1065,7 +1065,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Name"),
@@ -1078,7 +1078,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Connection"),
@@ -1101,7 +1101,7 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Command"),
@@ -1114,7 +1114,7 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Arguments"),
@@ -1125,31 +1125,31 @@ impl SettingsView {
                 v_flex()
                     .w_full()
                     .gap_1()
-                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Environment · one KEY=VALUE per line"))
+                    .child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Environment · one KEY=VALUE per line"))
                     .child(Input::new(&draft.env).small().disabled(busy))
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("Environment values are portable plaintext in ~/.aiden/config.json. Use only values you intend to store there.")),
+                    .child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child("Environment values are portable plaintext in ~/.aiden/config.json. Use only values you intend to store there.")),
             ))
             .when(remote, |el| el
                 .child(
                     v_flex()
                         .w_full()
                         .gap_1()
-                        .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Server URL"))
+                        .child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Server URL"))
                         .child(Input::new(&draft.url).small().disabled(busy)),
                 )
                 .child(
                     v_flex()
                         .w_full()
                         .gap_1()
-                        .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Headers · one KEY=VALUE per line"))
+                        .child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Headers · one KEY=VALUE per line"))
                         .child(Input::new(&draft.headers).small().disabled(busy))
-                        .child(div().text_xs().text_color(theme.muted_foreground).child("Manual headers are portable plaintext in ~/.aiden/config.json. OAuth tokens and preset keys are encrypted separately.")),
+                        .child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child("Manual headers are portable plaintext in ~/.aiden/config.json. OAuth tokens and preset keys are encrypted separately.")),
                 )
                 .when(draft.preset_id.is_none(), |el| el.child(
                     h_flex()
                         .items_center()
                         .justify_between()
-                        .child(v_flex().child(div().text_sm().child("OAuth sign-in")).child(div().text_xs().text_color(theme.muted_foreground).child("Only explicit Authorize opens your browser.")))
+                        .child(v_flex().child(div().text_size(typography::small(theme)).child("OAuth sign-in")).child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child("Only explicit Authorize opens your browser.")))
                         .child(Switch::new("mcp-editor-oauth").checked(draft.oauth).disabled(busy).on_click(cx.listener(|this, checked, _window, cx| {
                             if let Some(draft) = this.mcp.adding.as_mut() {
                                 draft.oauth = *checked;
@@ -1162,7 +1162,7 @@ impl SettingsView {
                 aiden_mcp::McpPresetAuth::ApiKey { key_help_url, .. } => el.child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_sm().font_weight(FontWeight::MEDIUM).child("API key"))
+                        .child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).child("API key"))
                         .child(Input::new(&draft.preset_key).small().mask_toggle().disabled(busy))
                         .child(h_flex().gap_2()
                             .child(Button::new("mcp-key-help").link().small().label(format!("Get a key from {}", preset.name)).on_click(move |_, _, cx| cx.open_url(key_help_url)))
@@ -1174,7 +1174,7 @@ impl SettingsView {
                     h_flex()
                         .items_center()
                         .justify_between()
-                        .child(v_flex().child(div().text_sm().font_weight(FontWeight::MEDIUM).child("Browser authorization")).child(div().text_xs().text_color(theme.muted_foreground).child("Aiden stores tokens encrypted on this device and never contacts userinfo.")))
+                        .child(v_flex().child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).child("Browser authorization")).child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child("Aiden stores tokens encrypted on this device and never contacts userinfo.")))
                         .child(
                             h_flex()
                                 .gap_2()
@@ -1194,7 +1194,7 @@ impl SettingsView {
                 h_flex()
                     .items_center()
                     .justify_between()
-                    .child(v_flex().child(div().text_sm().font_weight(FontWeight::MEDIUM).child("Browser authorization")).child(div().text_xs().text_color(theme.muted_foreground).child("Aiden stores tokens encrypted on this device and never contacts userinfo.")))
+                    .child(v_flex().child(div().text_size(typography::small(theme)).font_weight(FontWeight::MEDIUM).child("Browser authorization")).child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child("Aiden stores tokens encrypted on this device and never contacts userinfo.")))
                     .child(
                         h_flex()
                             .gap_2()
@@ -1213,7 +1213,7 @@ impl SettingsView {
                 h_flex()
                     .items_center()
                     .justify_between()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(if draft.enabled { "Enabled" } else { "Disabled" }))
+                    .child(div().text_size(typography::small(theme)).text_color(theme.muted_foreground).child(if draft.enabled { "Enabled" } else { "Disabled" }))
                     .child(Switch::new("mcp-editor-enabled").checked(draft.enabled).disabled(busy).on_click(cx.listener(|this, checked, _, cx| {
                         if let Some(draft) = this.mcp.adding.as_mut() {
                             draft.enabled = *checked;
@@ -1229,7 +1229,7 @@ impl SettingsView {
                         .bg(theme.danger.opacity(0.12))
                         .px_3()
                         .py_2()
-                        .text_sm()
+                        .text_size(typography::small(theme))
                         .text_color(theme.danger)
                         .child(error),
                 )
@@ -1688,7 +1688,7 @@ impl SettingsView {
                                 .bg(theme.danger.opacity(0.12))
                                 .px_3()
                                 .py_2()
-                                .text_sm()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.danger)
                                 .child(error),
                         )
@@ -1785,7 +1785,12 @@ impl SettingsView {
                     .child(format!("“{label}” will be disconnected and removed.")),
             )
             .when_some(self.mcp.error.clone(), |el, error| {
-                el.child(div().text_sm().text_color(theme.danger).child(error))
+                el.child(
+                    div()
+                        .text_size(typography::small(theme))
+                        .text_color(theme.danger)
+                        .child(error),
+                )
             })
             .child(
                 h_flex()

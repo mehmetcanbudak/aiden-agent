@@ -30,9 +30,10 @@ use gpui_component::{
 
 use crate::controls::Switch;
 
+use crate::typography;
+
 use super::{
     settings_field, settings_fieldset, SettingsServices, SettingsView, SETTINGS_CARD_RADIUS_PX,
-    SETTINGS_SMALL_TEXT_PX, SETTINGS_TEXT_PX,
 };
 
 const DEFAULT_SCHEDULED_MODE: ScheduledTaskMode = ScheduledTaskMode::Llm;
@@ -524,7 +525,7 @@ impl SettingsView {
             )
             .child(
                 div()
-                    .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                    .text_size(typography::small(&theme))
                     .text_color(theme.secondary_foreground)
                     .child(if enabled_mcp_count == 0 {
                         "No enabled servers".to_string()
@@ -591,14 +592,14 @@ impl SettingsView {
                         v_flex()
                             .child(
                                 div()
-                                    .text_size(px(SETTINGS_TEXT_PX))
+                                    .text_size(typography::regular(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Script folders"),
                             )
                             .child(
                                 div()
                                     .mt(px(2.))
-                                    .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.secondary_foreground)
                                     .child("Workspace scripts take precedence over global scripts with the same file name."),
                             ),
@@ -610,7 +611,7 @@ impl SettingsView {
                             .px_3()
                             .py_2()
                             .font_family("monospace")
-                            .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                            .text_size(typography::small(&theme))
                             .text_color(theme.secondary_foreground)
                             .child("<workspace>/.aiden/scripts/\n~/.aiden/scripts/"),
                     ),
@@ -629,7 +630,7 @@ impl SettingsView {
                 )
                 .child(
                     div()
-                        .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                        .text_size(typography::small(&theme))
                         .text_color(theme.secondary_foreground)
                         .child("No scheduled tasks yet."),
                 )
@@ -652,7 +653,7 @@ impl SettingsView {
                         .rounded(px(SETTINGS_CARD_RADIUS_PX))
                         .bg(theme.danger.opacity(0.12))
                         .p_3()
-                        .text_size(px(SETTINGS_SMALL_TEXT_PX))
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                         .child(message),
                 )
@@ -711,13 +712,13 @@ impl SettingsView {
                             .flex_1()
                             .child(
                                 div()
-                                    .text_lg()
+                                    .text_size(typography::large_strong(&theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("Scheduled tasks"),
                             )
                             .child(
                                 div()
-                                    .text_sm()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .mt_0p5()
                                     .child("Run explicit, locally stored automations while Aiden is open."),
@@ -747,8 +748,8 @@ impl SettingsView {
                     .border_color(theme.border)
                     .child(
                         v_flex()
-                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child("Allow scheduled execution"))
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(if state.executor_ready {
+                            .child(div().text_size(typography::small(&theme)).font_weight(FontWeight::MEDIUM).child("Allow scheduled execution"))
+                            .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(if state.executor_ready {
                                 "Off by default. Enabling may send task prompts to the pinned provider and run approved local scripts."
                             } else {
                                 "The scheduled executor is unavailable; tasks remain paused."
@@ -772,7 +773,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(theme.danger.opacity(0.12))
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.danger)
                     .child(message),
                 )
@@ -786,7 +787,7 @@ impl SettingsView {
                         .py_2()
                         .rounded_md()
                         .bg(theme.muted.opacity(0.12))
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("Loading scheduled-task defaults…"),
                 )
@@ -806,7 +807,7 @@ impl SettingsView {
                         .child(
                             div()
                                 .flex_1()
-                                .text_sm()
+                                .text_size(typography::small(&theme))
                                 .text_color(theme.danger)
                                 .child(message),
                         )
@@ -833,13 +834,13 @@ impl SettingsView {
                     .py_3()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Defaults for new tasks"),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("These defaults are saved on this Mac and can be changed before each task runs."),
                     )
@@ -849,7 +850,7 @@ impl SettingsView {
                             .w_full()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().text_sm().child("Default task mode"))
+                            .child(div().flex_1().text_size(typography::small(&theme)).child("Default task mode"))
                             .child({
                                 let mut button = Button::new("scheduled-default-mode-llm")
                                     .small()
@@ -897,7 +898,7 @@ impl SettingsView {
                             .w_full()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().text_sm().child("Default permission"))
+                            .child(div().flex_1().text_size(typography::small(&theme)).child("Default permission"))
                             .child({
                                 let mut button = Button::new("scheduled-default-permission-read-only")
                                     .small()
@@ -954,10 +955,10 @@ impl SettingsView {
                             .child(
                                 v_flex()
                                     .flex_1()
-                                    .child(div().text_sm().child("Default MCP access"))
+                                    .child(div().text_size(typography::small(&theme)).child("Default MCP access"))
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(typography::small(&theme))
                                             .text_color(theme.muted_foreground)
                                             .child("Select enabled servers when creating a new Full task."),
                                     ),
@@ -1003,7 +1004,7 @@ impl SettingsView {
                             .w_full()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().text_sm().child("Notifications"))
+                            .child(div().flex_1().text_size(typography::small(&theme)).child("Notifications"))
                             .child(
                                 Switch::new("scheduled-default-notify-switch")
                                     .checked(state.defaults.default_notify)
@@ -1033,10 +1034,10 @@ impl SettingsView {
                             .child(
                                 v_flex()
                                     .flex_1()
-                                    .child(div().text_sm().child("Default timezone"))
+                                    .child(div().text_size(typography::small(&theme)).child("Default timezone"))
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(typography::small(&theme))
                                             .text_color(theme.muted_foreground)
                                             .child("Use an IANA timezone such as America/New_York."),
                                     ),
@@ -1064,10 +1065,10 @@ impl SettingsView {
                             .id("scheduled-script-folders")
                             .w_full()
                             .gap_1()
-                            .child(div().text_sm().child("Script folders"))
+                            .child(div().text_size(typography::small(&theme)).child("Script folders"))
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Workspace scripts take precedence over global scripts with the same name."),
                             )
@@ -1079,7 +1080,7 @@ impl SettingsView {
                                     .px_2()
                                     .py_2()
                                     .font_family("monospace")
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("<workspace>/.aiden/scripts/\n~/.aiden/scripts/"),
                             ),
@@ -1091,7 +1092,7 @@ impl SettingsView {
                     .gap_2()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Current tasks"),
                     )
@@ -1128,7 +1129,7 @@ impl SettingsView {
                 )
                 .child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(theme))
                         .text_color(muted_foreground)
                         .child("No scheduled tasks yet."),
                 )
@@ -1189,14 +1190,14 @@ impl SettingsView {
                     .min_w(gpui::px(0.))
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::regular(theme))
                             .font_weight(FontWeight::MEDIUM)
                             .truncate()
                             .child(name),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(theme))
                             .text_color(theme.muted_foreground)
                             .mt_0p5()
                             .truncate()
@@ -1213,7 +1214,7 @@ impl SettingsView {
                     .when_some(row.last_error.clone(), |el, error| {
                         el.child(
                             div()
-                                .text_xs()
+                                .text_size(typography::small(theme))
                                 .text_color(theme.danger)
                                 .mt_0p5()
                                 .child(error),
@@ -1303,7 +1304,7 @@ impl SettingsView {
                     .justify_between()
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(if draft.id.is_some() { "Edit scheduled task" } else { "New scheduled task" }),
                     )
@@ -1349,7 +1350,7 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Name"),
@@ -1362,7 +1363,7 @@ impl SettingsView {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.muted_foreground)
                             .child("Prompt"),
@@ -1373,14 +1374,14 @@ impl SettingsView {
                 v_flex()
                     .w_full()
                     .gap_1()
-                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Script from .aiden/scripts"))
+                    .child(div().text_size(typography::small(&theme)).font_weight(FontWeight::MEDIUM).text_color(theme.muted_foreground).child("Script from .aiden/scripts"))
                     .child(Input::new(&draft.script).small())
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("Scripts run with Full access, a 60-second timeout, and a 1 MB output limit.")),
+                    .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child("Scripts run with Full access, a 60-second timeout, and a 1 MB output limit.")),
             ))
             .when(draft.mode == ScheduledTaskMode::Llm, |el| el.child(self.schedule_provider_select(draft, cx)))
             .when(draft.mode == ScheduledTaskMode::Llm, |el| el.child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Native scheduled prompts are bounded provider turns. Project paths ground context, but filesystem and shell tools are not exposed; Full access only enables explicitly selected MCP servers."),
             ))
@@ -1395,7 +1396,7 @@ impl SettingsView {
                     .w_full()
                     .items_center()
                     .gap_2()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child("Permission"))
+                    .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child("Permission"))
                     .child({
                         let mut button = Button::new("schedule-read-only").xsmall().ghost().label("Read-only");
                         if draft.permission == ScheduledTaskPermission::ReadOnly { button = button.primary(); }
@@ -1433,7 +1434,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Cron expression"),
@@ -1441,7 +1442,7 @@ impl SettingsView {
                             .child(Input::new(&draft.cron).small())
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(if self.scheduled.cron_ok {
                                         theme.success
                                     } else {
@@ -1458,7 +1459,7 @@ impl SettingsView {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.muted_foreground)
                                     .child("Workspace"),
@@ -1506,7 +1507,7 @@ impl SettingsView {
             .gap_1()
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(theme))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.muted_foreground)
                     .child("Pinned provider and model"),
@@ -1624,7 +1625,7 @@ impl SettingsView {
             .gap_1()
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(theme))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.muted_foreground)
                     .child("Unattended MCP access (optional)"),
@@ -1751,7 +1752,7 @@ impl SettingsView {
                     .on_click(|_event, _window, cx| cx.stop_propagation())
                     .child(
                         div()
-                            .text_size(px(18.))
+                            .text_size(typography::heading2(theme))
                             .line_height(px(24.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Delete this scheduled task?"),
@@ -1759,7 +1760,7 @@ impl SettingsView {
                     .child(
                         div()
                             .mt_2()
-                            .text_size(px(SETTINGS_TEXT_PX))
+                            .text_size(typography::regular(theme))
                             .text_color(theme.secondary_foreground)
                             .child(format!("“{label}” and its run history will be removed.")),
                     )

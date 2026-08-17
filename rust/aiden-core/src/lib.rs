@@ -557,9 +557,13 @@ pub struct ToolDef {
 // ===========================================================================
 
 /// Versions of the timeline format this build persists and replays.
-pub const GENERATION_TIMELINE_VERSION: u8 = 2;
+///
+/// Version 3 anchors every step to a UTF-16 offset into the visible assistant
+/// text so activity can be interleaved with the prose it happened during.
+/// Versions 1 and 2 predate that and replay with no offsets at all.
+pub const GENERATION_TIMELINE_VERSION: u8 = 3;
 /// Versions this build can still replay from local chat storage.
-pub const REPLAYABLE_TIMELINE_VERSIONS: &[u8] = &[1, 2];
+pub const REPLAYABLE_TIMELINE_VERSIONS: &[u8] = &[1, 2, GENERATION_TIMELINE_VERSION];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -589,6 +593,9 @@ pub struct AgentToolStep {
     pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<u64>,
+    /// UTF-16 offset into the visible assistant text when this activity began.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_offset: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -608,6 +615,9 @@ pub struct AgentThinkingStep {
     /// Wall-clock reasoning time measured by the host; pi reports none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
+    /// UTF-16 offset into the visible assistant text when this activity began.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_offset: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1073,18 +1083,35 @@ mod tests {
     }
 
     #[test]
-    fn timeline_serializes_version_2() {
+    fn timeline_serializes_version_3() {
         let mut timeline = timeline_fixture();
         timeline.status = GenerationTimelineStatus::Completed;
         timeline.claim_check = Some(GenerationClaimCheck::UnverifiedSuccess {
             step_ids: vec!["tool-1".into()],
         });
         let value = serde_json::to_value(&timeline).unwrap();
-        assert_eq!(value["version"], 2);
+        assert_eq!(value["version"], 3);
         assert_eq!(value["steps"][0]["kind"], "tool");
         assert_eq!(value["steps"][1]["kind"], "thinking");
         assert_eq!(value["claimCheck"]["kind"], "unverified_success");
         assert_eq!(value["claimCheck"]["stepIds"][0], "tool-1");
+    }
+
+    /// Version 3 anchors steps to the visible assistant text. A step without an
+    /// offset must still round-trip, since versions 1 and 2 replay without one.
+    #[test]
+    fn content_offset_is_omitted_when_absent_and_kept_when_set() {
+        let mut timeline = timeline_fixture();
+        let value = serde_json::to_value(&timeline).unwrap();
+        assert!(value["steps"][0].get("contentOffset").is_none());
+
+        if let AgentStep::Tool(tool) = &mut timeline.steps[0] {
+            tool.content_offset = Some(42);
+        }
+        let value = serde_json::to_value(&timeline).unwrap();
+        assert_eq!(value["steps"][0]["contentOffset"], 42);
+        let back: GenerationTimeline = serde_json::from_value(value).unwrap();
+        assert_eq!(back, timeline);
     }
 
     #[test]
@@ -1159,6 +1186,7 @@ mod tests {
                     finished_at: None,
                     target: Some("src/main.rs".into()),
                     detail: Some("pattern: foo".into()),
+                    content_offset: None,
                 }),
                 AgentStep::Thinking(AgentThinkingStep {
                     id: "think-1".into(),
@@ -1167,6 +1195,7 @@ mod tests {
                     updated_at: 1_700_000_000_020,
                     finished_at: None,
                     duration_ms: Some(10),
+                    content_offset: None,
                 }),
             ],
             claim_check: None,

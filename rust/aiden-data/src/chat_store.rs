@@ -245,12 +245,19 @@ fn safe_stored_detail(value: &str) -> bool {
 
 /// `parseGenerationTimeline` — validate the renderer-safe subset before
 /// replaying a timeline from local chat storage.
-pub fn parse_generation_timeline(value: &Value) -> Option<GenerationTimeline> {
+/// `content_length` is the visible assistant text a version-3 timeline is
+/// anchored to; offsets beyond it mean the record and the message disagree, so
+/// the whole timeline is rejected rather than replayed against the wrong prose.
+pub fn parse_generation_timeline(
+    value: &Value,
+    content_length: Option<usize>,
+) -> Option<GenerationTimeline> {
     let candidate = value.as_object()?;
     let version = candidate.get("version").and_then(Value::as_u64)?;
-    if version != 2 && version != 1 {
+    if !aiden_core::REPLAYABLE_TIMELINE_VERSIONS.contains(&u8::try_from(version).ok()?) {
         return None;
     }
+    let current_version = u64::from(aiden_core::GENERATION_TIMELINE_VERSION);
     let generation_id = candidate.get("generationId").and_then(Value::as_str)?;
     if generation_id.is_empty()
         || generation_id.len() > 128
@@ -277,6 +284,7 @@ pub fn parse_generation_timeline(value: &Value) -> Option<GenerationTimeline> {
         return None;
     }
     let mut steps: Vec<aiden_core::AgentStep> = Vec::new();
+    let mut previous_content_offset = 0usize;
     for (index, raw_step) in steps_raw.iter().enumerate() {
         let step = raw_step.as_object()?;
         if step.get("order").and_then(Value::as_u64) != Some(index as u64)
@@ -288,14 +296,28 @@ pub fn parse_generation_timeline(value: &Value) -> Option<GenerationTimeline> {
         if let Some(finished_at) = step.get("finishedAt") {
             finite_timestamp(Some(finished_at))?;
         }
+        // Versions 1 and 2 predate text offsets; on the current version every
+        // step must carry one, and they only ever move forward.
+        let content_offset = if version == current_version {
+            let offset = usize::try_from(step.get("contentOffset")?.as_u64()?).ok()?;
+            if offset < previous_content_offset
+                || content_length.is_some_and(|length| offset > length)
+            {
+                return None;
+            }
+            previous_content_offset = offset;
+            Some(offset)
+        } else {
+            None
+        };
         // Version 1 predates reasoning steps, so it may only contain tool steps.
         match step.get("kind").and_then(Value::as_str) {
             Some("tool") => {
-                let parsed = parse_tool_step(step, index)?;
+                let parsed = parse_tool_step(step, index, content_offset)?;
                 steps.push(aiden_core::AgentStep::Tool(parsed));
             }
-            Some("thinking") if version == 2 => {
-                let parsed = parse_thinking_step(step, index)?;
+            Some("thinking") if version != 1 => {
+                let parsed = parse_thinking_step(step, index, content_offset)?;
                 steps.push(aiden_core::AgentStep::Thinking(parsed));
             }
             _ => return None,
@@ -358,7 +380,11 @@ pub fn parse_generation_timeline(value: &Value) -> Option<GenerationTimeline> {
     })
 }
 
-fn parse_tool_step(step: &Map<String, Value>, index: usize) -> Option<aiden_core::AgentToolStep> {
+fn parse_tool_step(
+    step: &Map<String, Value>,
+    index: usize,
+    content_offset: Option<usize>,
+) -> Option<aiden_core::AgentToolStep> {
     let id = step.get("id").and_then(Value::as_str)?;
     let tool_call_id = step.get("toolCallId").and_then(Value::as_str)?;
     let tool_name = step.get("toolName").and_then(Value::as_str)?;
@@ -405,6 +431,7 @@ fn parse_tool_step(step: &Map<String, Value>, index: usize) -> Option<aiden_core
         started_at: step.get("startedAt")?.as_u64()?,
         updated_at: step.get("updatedAt")?.as_u64()?,
         finished_at: step.get("finishedAt").and_then(Value::as_u64),
+        content_offset,
         target: step
             .get("target")
             .and_then(Value::as_str)
@@ -419,6 +446,7 @@ fn parse_tool_step(step: &Map<String, Value>, index: usize) -> Option<aiden_core
 fn parse_thinking_step(
     step: &Map<String, Value>,
     index: usize,
+    content_offset: Option<usize>,
 ) -> Option<aiden_core::AgentThinkingStep> {
     let id = step.get("id").and_then(Value::as_str)?;
     if !id.starts_with("think-") || id[6..].parse::<u64>().ok()? == 0 {
@@ -434,6 +462,7 @@ fn parse_thinking_step(
         updated_at: step.get("updatedAt")?.as_u64()?,
         finished_at: step.get("finishedAt").and_then(Value::as_u64),
         duration_ms: step.get("durationMs").and_then(Value::as_u64),
+        content_offset,
     })
 }
 
@@ -1093,7 +1122,11 @@ impl ChatStore {
                 .as_ref()
                 .filter(|reasoning| !reasoning.trim().is_empty())
                 .cloned();
-            message.timeline = raw.get("timeline").and_then(parse_generation_timeline);
+            // Offsets are UTF-16 code units, matching the renderer they anchor to.
+            let content_length = message.content.encode_utf16().count();
+            message.timeline = raw
+                .get("timeline")
+                .and_then(|timeline| parse_generation_timeline(timeline, Some(content_length)));
             message.subagents = raw
                 .get("subagents")
                 .and_then(parse_subagent_message_reference_v1)
@@ -2654,24 +2687,24 @@ mod tests {
                 "stepIds": ["tool-1"]
             }
         });
-        let parsed = parse_generation_timeline(&valid).unwrap();
+        let parsed = parse_generation_timeline(&valid, None).unwrap();
         assert_eq!(parsed.steps.len(), 2);
         assert!(parsed.claim_check.is_some());
 
         // Invalid: order mismatch, bad step id, version 1 with thinking steps.
         let mut bad = valid.clone();
         bad["steps"][1]["order"] = serde_json::json!(9);
-        assert!(parse_generation_timeline(&bad).is_none());
+        assert!(parse_generation_timeline(&bad, None).is_none());
 
         let mut v1 = valid.clone();
         v1["version"] = serde_json::json!(1);
         v1["steps"][1]["kind"] = serde_json::json!("thinking");
-        assert!(parse_generation_timeline(&v1).is_none());
+        assert!(parse_generation_timeline(&v1, None).is_none());
 
         // Invalid: running status with a claim check.
         let mut running = valid;
         running["status"] = serde_json::json!("running");
-        assert!(parse_generation_timeline(&running).is_none());
+        assert!(parse_generation_timeline(&running, None).is_none());
     }
 
     #[test]

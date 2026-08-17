@@ -779,6 +779,7 @@ mod tests {
             finished_at: None,
             target: target.map(str::to_string),
             detail: detail.map(str::to_string),
+            content_offset: None,
         })
     }
 
@@ -790,6 +791,7 @@ mod tests {
             updated_at: 2,
             finished_at: finished.then_some(2),
             duration_ms,
+            content_offset: None,
         })
     }
 

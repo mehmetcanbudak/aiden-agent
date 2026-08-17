@@ -728,6 +728,10 @@ pub struct TimelineProjector {
     tool_sequence: usize,
     thinking_sequence: usize,
     open_thinking: Option<(usize, u64)>,
+    /// UTF-16 offset into the visible assistant text that new activity anchors
+    /// to, so the renderer can interleave steps with the prose they happened
+    /// during instead of stacking them all above it.
+    content_offset: usize,
 }
 
 impl TimelineProjector {
@@ -761,10 +765,64 @@ impl TimelineProjector {
             tool_sequence: 0,
             thinking_sequence: 0,
             open_thinking: None,
+            content_offset: 0,
         }
     }
 
     /// `toolStarted` — a tool call began (provider call id → public step id).
+    /// Keep future activity anchored to the current visible assistant text.
+    pub fn set_content_offset(&mut self, offset: usize) {
+        self.content_offset = offset;
+    }
+
+    /// Terminal Pi content can replace a streamed assistant turn. Clamp activity
+    /// that was observed beyond the canonical turn end before anchoring later
+    /// work, so a shortened turn never leaves steps pointing past its prose.
+    pub fn reconcile_content_offset(&mut self, turn_start: usize, turn_end: usize) {
+        if turn_end < turn_start {
+            return;
+        }
+        let mut changed = false;
+        for step in &mut self.timeline.steps {
+            let slot = match step {
+                AgentStep::Tool(tool) => &mut tool.content_offset,
+                AgentStep::Thinking(thinking) => &mut thinking.content_offset,
+            };
+            if let Some(offset) = slot {
+                if *offset >= turn_start && *offset > turn_end {
+                    *offset = turn_end;
+                    changed = true;
+                }
+            }
+        }
+        self.content_offset = turn_end;
+        if changed {
+            self.emit();
+        }
+    }
+
+    /// Compact-and-retry removes failed prose but keeps its activity at the
+    /// retry boundary rather than dropping it.
+    pub fn rewind_content_offset(&mut self, offset: usize) {
+        let mut changed = false;
+        for step in &mut self.timeline.steps {
+            let slot = match step {
+                AgentStep::Tool(tool) => &mut tool.content_offset,
+                AgentStep::Thinking(thinking) => &mut thinking.content_offset,
+            };
+            if let Some(current) = slot {
+                if *current > offset {
+                    *current = offset;
+                    changed = true;
+                }
+            }
+        }
+        self.content_offset = offset;
+        if changed {
+            self.emit();
+        }
+    }
+
     pub fn tool_started(&mut self, tool_call_id: &str, tool_name: &str, args: &serde_json::Value) {
         if self.timeline.status != GenerationTimelineStatus::Running
             || self.step_index.contains_key(tool_call_id)
@@ -784,6 +842,7 @@ impl TimelineProjector {
             started_at: timestamp,
             updated_at: timestamp,
             finished_at: None,
+            content_offset: Some(self.content_offset),
             target: descriptor.target,
             detail: descriptor.detail,
         };
@@ -801,11 +860,10 @@ impl TimelineProjector {
             return;
         }
         let timestamp = (self.now)();
-        let last_is_thinking = self
-            .timeline
-            .steps
-            .last()
-            .is_some_and(|step| matches!(step, AgentStep::Thinking(_)));
+        let last_is_thinking = self.timeline.steps.last().is_some_and(|step| match step {
+            AgentStep::Thinking(thinking) => thinking.content_offset == Some(self.content_offset),
+            AgentStep::Tool(_) => false,
+        });
         if last_is_thinking {
             self.open_thinking = Some((self.timeline.steps.len() - 1, timestamp));
             return;
@@ -818,6 +876,7 @@ impl TimelineProjector {
             updated_at: timestamp,
             finished_at: None,
             duration_ms: Some(0),
+            content_offset: Some(self.content_offset),
         };
         self.open_thinking = Some((self.timeline.steps.len(), timestamp));
         self.timeline.steps.push(AgentStep::Thinking(step));

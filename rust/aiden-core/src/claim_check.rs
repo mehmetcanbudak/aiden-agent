@@ -711,6 +711,7 @@ mod tests {
                 finished_at: Some(2),
                 target: None,
                 detail: None,
+                content_offset: None,
             })],
             claim_check: None,
         }
@@ -902,6 +903,7 @@ mod tests {
                 updated_at: 2,
                 finished_at: Some(2),
                 duration_ms: None,
+                content_offset: None,
             }),
         );
         assert_eq!(

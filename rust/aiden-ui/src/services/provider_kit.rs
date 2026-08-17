@@ -1253,6 +1253,8 @@ pub async fn drive_stream(
             Some(system_prompt.clone()),
         );
         let mut reducer = StreamReducer::new();
+        // UTF-16 length of the visible assistant text so far; steps anchor to it.
+        let mut content_offset = 0usize;
         let mut interval =
             tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
         let mut cancelled = false;
@@ -1264,8 +1266,19 @@ pub async fn drive_stream(
                     tokio::select! {
                         maybe_event = stream.next() => match maybe_event {
                             Some(Ok(event)) => {
+                                // Project first, so a tool starting mid-turn anchors to the
+                                // prose written before it rather than after.
                                 project_timeline_event(&mut projector, &event);
+                                let before = reducer.text.len();
                                 reducer.apply(event);
+                                // Offsets are UTF-16 code units. Measure only the appended
+                                // tail; rescanning the whole turn per delta is quadratic.
+                                if reducer.text.len() >= before && reducer.text.is_char_boundary(before) {
+                                    content_offset += reducer.text[before..].encode_utf16().count();
+                                } else {
+                                    content_offset = reducer.text.encode_utf16().count();
+                                }
+                                projector.set_content_offset(content_offset);
                             }
                             Some(Err(error)) => {
                                 reducer.fail(provider_error_message(&error));
@@ -2188,6 +2201,7 @@ mod tests {
             finished_at,
             target: None,
             detail: detail.map(str::to_string),
+            content_offset: None,
         })
     }
 
@@ -2372,6 +2386,7 @@ mod tests {
                 updated_at: 1_700_000_000_005,
                 finished_at: Some(1_700_000_000_005),
                 duration_ms: Some(5),
+                content_offset: None,
             }),
             tool_step(
                 1,

@@ -189,6 +189,7 @@ pub struct ActivityCalendar {
     pub week_count: usize,
 }
 
+use crate::typography;
 use chrono::Datelike;
 
 fn parse_date_key(date: &str) -> chrono::NaiveDate {
@@ -1040,17 +1041,17 @@ impl UsagePanel {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_size(typography::large_strong(&theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("Model activity"),
                             )
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(
+                            .child(div().text_size(typography::small(&theme)).text_color(theme.muted_foreground).child(
                                 "Every model call counts, including local and unmetered requests.",
                             )),
                     )
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child(format!("{} active days", summary.totals.active_days)),
                     ),
@@ -1068,19 +1069,19 @@ impl UsagePanel {
                                 .py(px(10.))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::mini(&theme))
                                         .text_color(theme.muted_foreground)
                                         .child("Mon"),
                                 )
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::mini(&theme))
                                         .text_color(theme.muted_foreground)
                                         .child("Wed"),
                                 )
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .text_size(typography::mini(&theme))
                                         .text_color(theme.muted_foreground)
                                         .child("Fri"),
                                 ),
@@ -1103,7 +1104,7 @@ impl UsagePanel {
                     .gap_1()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Less"),
                     )
@@ -1115,7 +1116,7 @@ impl UsagePanel {
                     }))
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("More"),
                     ),
@@ -1137,20 +1138,20 @@ impl UsagePanel {
             .gap_2()
             .child(
                 div()
-                    .text_base()
+                    .text_size(typography::large_strong(&theme))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Token mix"),
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child("Provider-reported tokens only."),
             )
             .when(total == 0, |el| {
                 el.child(
                     div()
-                        .text_sm()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child("No reported tokens yet"),
                 )
@@ -1191,10 +1192,21 @@ impl UsagePanel {
                                     .rounded_full()
                                     .bg(mix_color(&theme, index)),
                             )
-                            .child(div().flex_1().text_sm().child(item.label))
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                format!("{} · {percentage:.1}%", compact_number(item.value)),
-                            ))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(typography::small(&theme))
+                                    .child(item.label),
+                            )
+                            .child(
+                                div()
+                                    .text_size(typography::small(&theme))
+                                    .text_color(theme.muted_foreground)
+                                    .child(format!(
+                                        "{} · {percentage:.1}%",
+                                        compact_number(item.value)
+                                    )),
+                            )
                             .into_any_element()
                     })
                     .collect::<Vec<_>>(),
@@ -1202,7 +1214,7 @@ impl UsagePanel {
             .when(summary.totals.tokens.reasoning > 0, |el| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(format!(
                             "{} reasoning tokens are included in Output.",
@@ -1239,13 +1251,13 @@ impl UsagePanel {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_size(typography::large_strong(&theme))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("Top models"),
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(typography::small(&theme))
                                     .text_color(theme.muted_foreground)
                                     .child("Private rankings from this Mac."),
                             ),
@@ -1253,13 +1265,16 @@ impl UsagePanel {
                     .child(self.metric_selector(cx)),
             )
             .when(visible.is_empty(), |el| {
-                el.child(div().text_sm().text_color(theme.muted_foreground).child(
-                    if self.metric == UsageScoreMetric::Cost {
-                        "No tracked model costs"
-                    } else {
-                        "No model calls yet"
-                    },
-                ))
+                el.child(
+                    div()
+                        .text_size(typography::small(&theme))
+                        .text_color(theme.muted_foreground)
+                        .child(if self.metric == UsageScoreMetric::Cost {
+                            "No tracked model costs"
+                        } else {
+                            "No model calls yet"
+                        }),
+                )
             })
             .children(
                 visible
@@ -1281,7 +1296,7 @@ impl UsagePanel {
                                     .gap_2()
                                     .child(
                                         div()
-                                            .text_xs()
+                                            .text_size(typography::small(&theme))
                                             .text_color(theme.muted_foreground)
                                             .child((index + 1).to_string()),
                                     )
@@ -1291,13 +1306,13 @@ impl UsagePanel {
                                             .min_w(px(0.))
                                             .child(
                                                 div()
-                                                    .text_sm()
+                                                    .text_size(typography::small(&theme))
                                                     .truncate()
                                                     .child(model.model_label.clone()),
                                             )
                                             .child(
                                                 div()
-                                                    .text_xs()
+                                                    .text_size(typography::small(&theme))
                                                     .text_color(theme.muted_foreground)
                                                     .truncate()
                                                     .child(format!(
@@ -1314,7 +1329,7 @@ impl UsagePanel {
                                     .child(
                                         div()
                                             .flex_shrink_0()
-                                            .text_xs()
+                                            .text_size(typography::small(&theme))
                                             .text_color(theme.secondary)
                                             .child(self.model_score_label(model)),
                                     ),
@@ -1340,7 +1355,7 @@ impl UsagePanel {
             .when(ranked.len() > visible.len(), |el| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(typography::small(&theme))
                         .text_color(theme.muted_foreground)
                         .child(format!("Showing 10 of {} models", ranked.len())),
                 )
@@ -1547,12 +1562,17 @@ impl UsagePanel {
                     })
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(typography::small(&theme))
                             .text_color(theme.muted_foreground)
                             .child("Only on this Mac"),
                     )
                     .when_some(error, |column, error| {
-                        column.child(div().text_xs().text_color(theme.danger).child(error))
+                        column.child(
+                            div()
+                                .text_size(typography::small(&theme))
+                                .text_color(theme.danger)
+                                .child(error),
+                        )
                     }),
             )
             .into_any_element()
@@ -1653,7 +1673,7 @@ fn summary_metric(
         .py_1()
         .child(
             div()
-                .text_xs()
+                .text_size(typography::small(&theme))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(theme.muted_foreground)
                 .child(label.to_uppercase()),
@@ -1667,7 +1687,7 @@ fn summary_metric(
         .when_some(detail, |column, detail| {
             column.child(
                 div()
-                    .text_xs()
+                    .text_size(typography::small(&theme))
                     .text_color(theme.muted_foreground)
                     .child(detail),
             )
@@ -1752,129 +1772,131 @@ impl Render for UsagePanel {
         let share_busy = self.share_busy_revision.is_some();
         let share_disabled = summary.is_none() || self.profile_name.is_none() || share_busy;
 
-        let body =
-            if let Some(summary) = summary {
-                let totals = summary.totals;
-                let coverage = if totals.requests == 0 {
-                    0.0
-                } else {
-                    totals.reported_token_requests as f64 / totals.requests as f64 * 100.0
-                };
-                let coverage_copy = if totals.requests == 0 {
-                    "Tracking begins with your next model call.".to_string()
-                } else {
-                    format!("{coverage:.0}% of requests reported token usage.")
-                };
-                let mut cost_copy = if totals.costed_requests > 0 {
-                    format!(
-                        "Tracked hosted cost {}",
-                        format_tracked_usd(totals.hosted_cost_usd)
-                    )
-                } else {
-                    "No tracked hosted cost".to_string()
-                };
-                if totals.unpriced_hosted_requests > 0 {
-                    cost_copy.push_str(&format!(
-                        " · Cost unavailable for {} hosted requests",
-                        totals.unpriced_hosted_requests
-                    ));
-                }
-                if totals.local_requests > 0 {
-                    cost_copy.push_str(&format!(
-                        " · {} local excluded from cost",
-                        totals.local_requests
-                    ));
-                }
+        let body = if let Some(summary) = summary {
+            let totals = summary.totals;
+            let coverage = if totals.requests == 0 {
+                0.0
+            } else {
+                totals.reported_token_requests as f64 / totals.requests as f64 * 100.0
+            };
+            let coverage_copy = if totals.requests == 0 {
+                "Tracking begins with your next model call.".to_string()
+            } else {
+                format!("{coverage:.0}% of requests reported token usage.")
+            };
+            let mut cost_copy = if totals.costed_requests > 0 {
+                format!(
+                    "Tracked hosted cost {}",
+                    format_tracked_usd(totals.hosted_cost_usd)
+                )
+            } else {
+                "No tracked hosted cost".to_string()
+            };
+            if totals.unpriced_hosted_requests > 0 {
+                cost_copy.push_str(&format!(
+                    " · Cost unavailable for {} hosted requests",
+                    totals.unpriced_hosted_requests
+                ));
+            }
+            if totals.local_requests > 0 {
+                cost_copy.push_str(&format!(
+                    " · {} local excluded from cost",
+                    totals.local_requests
+                ));
+            }
 
-                let lower = if compact {
-                    v_flex()
-                        .w_full()
-                        .gap_5()
-                        .py_5()
-                        .child(self.token_mix_section(&summary, cx))
-                        .child(div().h(px(1.)).w_full().bg(theme.border))
-                        .child(self.scoreboard_section(&summary, cx))
-                        .into_any_element()
-                } else {
-                    h_flex()
-                        .w_full()
-                        .items_start()
-                        .py_5()
-                        .child(
-                            div()
-                                .w_1_2()
-                                .pr_5()
-                                .child(self.token_mix_section(&summary, cx)),
-                        )
-                        .child(
-                            div()
-                                .w_1_2()
-                                .pl_5()
-                                .border_l_1()
-                                .border_color(theme.border)
-                                .child(self.scoreboard_section(&summary, cx)),
-                        )
-                        .into_any_element()
-                };
-
+            let lower = if compact {
                 v_flex()
                     .w_full()
-                    .child(self.heatmap_section(&summary, cx))
-                    .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
-                    .child(self.summary_metrics(&summary, cx))
-                    .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
-                    .child(lower)
-                    .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .flex_wrap()
-                            .items_start()
-                            .justify_between()
-                            .gap_3()
-                            .pb_5()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(coverage_copy),
-                            )
-                            .child(
-                                div()
-                                    .max_w(px(560.))
-                                    .text_right()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(cost_copy),
-                            ),
-                    )
+                    .gap_5()
+                    .py_5()
+                    .child(self.token_mix_section(&summary, cx))
+                    .child(div().h(px(1.)).w_full().bg(theme.border))
+                    .child(self.scoreboard_section(&summary, cx))
                     .into_any_element()
             } else {
-                let error = self.error.clone();
-                v_flex()
+                h_flex()
                     .w_full()
-                    .min_h(px(288.))
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .child(div().text_sm().text_color(theme.muted_foreground).child(
-                        if self.loading {
+                    .items_start()
+                    .py_5()
+                    .child(
+                        div()
+                            .w_1_2()
+                            .pr_5()
+                            .child(self.token_mix_section(&summary, cx)),
+                    )
+                    .child(
+                        div()
+                            .w_1_2()
+                            .pl_5()
+                            .border_l_1()
+                            .border_color(theme.border)
+                            .child(self.scoreboard_section(&summary, cx)),
+                    )
+                    .into_any_element()
+            };
+
+            v_flex()
+                .w_full()
+                .child(self.heatmap_section(&summary, cx))
+                .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
+                .child(self.summary_metrics(&summary, cx))
+                .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
+                .child(lower)
+                .child(div().h(px(1.)).w_full().my_5().bg(theme.border))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .flex_wrap()
+                        .items_start()
+                        .justify_between()
+                        .gap_3()
+                        .pb_5()
+                        .child(
+                            div()
+                                .text_size(typography::small(&theme))
+                                .text_color(theme.muted_foreground)
+                                .child(coverage_copy),
+                        )
+                        .child(
+                            div()
+                                .max_w(px(560.))
+                                .text_right()
+                                .text_size(typography::small(&theme))
+                                .text_color(theme.muted_foreground)
+                                .child(cost_copy),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            let error = self.error.clone();
+            v_flex()
+                .w_full()
+                .min_h(px(288.))
+                .items_center()
+                .justify_center()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(typography::small(&theme))
+                        .text_color(theme.muted_foreground)
+                        .child(if self.loading {
                             "Loading usage…".to_string()
                         } else {
                             error.unwrap_or_else(|| "No usage data yet.".to_string())
-                        },
-                    ))
-                    .when(!self.loading, |column| {
-                        column.child(
-                            Button::new("usage-retry")
-                                .small()
-                                .primary()
-                                .label("Try again")
-                                .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-                        )
-                    })
-                    .into_any_element()
-            };
+                        }),
+                )
+                .when(!self.loading, |column| {
+                    column.child(
+                        Button::new("usage-retry")
+                            .small()
+                            .primary()
+                            .label("Try again")
+                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                    )
+                })
+                .into_any_element()
+        };
 
         v_flex()
             .id("usage-panel")
@@ -1893,7 +1915,7 @@ impl Render for UsagePanel {
                     .border_color(theme.border)
                     .child(
                         div()
-                            .text_base()
+                            .text_size(typography::large_strong(&theme))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Profile"),
                     )
@@ -1937,7 +1959,11 @@ impl Render for UsagePanel {
                             .child(div().h(px(1.)).w_full().bg(theme.border))
                             .when_some(self.share_error.clone(), |column, error| {
                                 column.child(
-                                    div().py_2().text_xs().text_color(theme.danger).child(error),
+                                    div()
+                                        .py_2()
+                                        .text_size(typography::small(&theme))
+                                        .text_color(theme.danger)
+                                        .child(error),
                                 )
                             })
                             .child(body),

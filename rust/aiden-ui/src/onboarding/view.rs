@@ -22,6 +22,7 @@ use gpui_component::{
 
 use super::state::{ProviderChoice, Step};
 use super::OnboardingView;
+use crate::typography;
 
 const APP_ICON_PNG: &[u8] = include_bytes!("../../../../resources/app-icon.png");
 
@@ -424,7 +425,7 @@ impl Render for OnboardingView {
                                         .w_full()
                                         .px_6()
                                         .pb_2()
-                                        .text_size(px(13.0))
+                                        .text_size(typography::small(&theme))
                                         .line_height(px(17.0))
                                         .text_color(theme.danger)
                                         .child(message),
@@ -474,7 +475,7 @@ impl OnboardingView {
                     .child(
                         div()
                             .mt_2()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(20.0))
                             .text_color(theme.muted_foreground)
                             .child("Add your profile and one model connection. You can change either later in Settings."),
@@ -521,7 +522,7 @@ impl OnboardingView {
                                 div()
                                     .min_w(px(0.0))
                                     .truncate()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(theme))
                                     .line_height(px(17.0))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child(step.label()),
@@ -565,7 +566,7 @@ impl OnboardingView {
             .px_6()
             .child(
                 div()
-                    .text_size(px(13.0))
+                    .text_size(typography::small(theme))
                     .line_height(px(17.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.muted_foreground)
@@ -649,7 +650,7 @@ impl OnboardingView {
             )
             .child(
                 div()
-                    .text_size(px(13.0))
+                    .text_size(typography::small(theme))
                     .line_height(px(17.0))
                     .text_color(theme.muted_foreground)
                     .child(body.to_string()),
@@ -689,7 +690,7 @@ impl OnboardingView {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(&theme))
                             .line_height(px(17.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Name"),
@@ -709,7 +710,7 @@ impl OnboardingView {
                     )
                     .child(
                         div()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(&theme))
                             .line_height(px(17.0))
                             .text_color(theme.muted_foreground)
                             .child("Stored privately on this Mac."),
@@ -830,7 +831,7 @@ impl OnboardingView {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(&theme))
                                     .line_height(px(17.0))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child("Choose from more"),
@@ -838,7 +839,7 @@ impl OnboardingView {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(&theme))
                                     .line_height(px(16.0))
                                     .text_color(theme.muted_foreground)
                                     .child(selected_pi_provider.as_ref().map_or_else(
@@ -905,7 +906,7 @@ impl OnboardingView {
                                 .gap_2()
                                 .child(
                                     div()
-                                        .text_size(px(13.0))
+                                        .text_size(typography::small(&theme))
                                         .line_height(px(17.0))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child("API key"),
@@ -922,7 +923,7 @@ impl OnboardingView {
                                 .gap_2()
                                 .child(
                                     div()
-                                        .text_size(px(13.0))
+                                        .text_size(typography::small(&theme))
                                         .line_height(px(17.0))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child("Base URL (optional)"),
@@ -945,7 +946,7 @@ impl OnboardingView {
                                 .gap_2()
                                 .child(
                                     div()
-                                        .text_size(px(13.0))
+                                        .text_size(typography::small(&theme))
                                         .line_height(px(17.0))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child("Model URL"),
@@ -1059,7 +1060,7 @@ impl OnboardingView {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(17.0))
                             .font_weight(FontWeight::MEDIUM)
                             .child(choice.title()),
@@ -1067,7 +1068,7 @@ impl OnboardingView {
                     .child(
                         div()
                             .max_w(px(182.0))
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(16.0))
                             .text_color(theme.muted_foreground)
                             .child(choice.description()),
@@ -1179,7 +1180,7 @@ impl OnboardingView {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(17.0))
                             .font_weight(FontWeight::MEDIUM)
                             .child(label),
@@ -1187,7 +1188,7 @@ impl OnboardingView {
                     .child(
                         div()
                             .truncate()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(17.0))
                             .text_color(theme.muted_foreground)
                             .child(setup_label),
@@ -1254,7 +1255,7 @@ impl OnboardingView {
                     )
                     .child(
                         div()
-                            .text_size(px(13.0))
+                            .text_size(typography::small(theme))
                             .line_height(px(17.0))
                             .text_color(theme.muted_foreground)
                             .child(
@@ -1265,7 +1266,7 @@ impl OnboardingView {
                     .when_some(error, |el, error| {
                         el.child(
                             div()
-                                .text_size(px(13.0))
+                                .text_size(typography::small(theme))
                                 .line_height(px(17.0))
                                 .text_color(theme.danger)
                                 .child(error),
@@ -1352,7 +1353,7 @@ impl OnboardingView {
                             .px_0p5()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
+                                    .text_size(typography::small(&theme))
                                     .line_height(px(17.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme.muted_foreground)
@@ -1472,7 +1473,7 @@ impl OnboardingView {
                                                             .right(px(12.0))
                                                             .bottom(px(12.0))
                                                             .max_w(gpui::relative(title_width))
-                                                            .text_size(px(13.0))
+                                                            .text_size(typography::small(&theme))
                                                             .line_height(px(16.0))
                                                             .font_weight(FontWeight::SEMIBOLD)
                                                             .child(feature.title),
@@ -1499,7 +1500,7 @@ impl OnboardingView {
                                                     )
                                                     .child(
                                                         div()
-                                                            .text_size(px(13.0))
+                                                            .text_size(typography::small(&theme))
                                                             .line_height(px(16.0))
                                                             .font_weight(FontWeight::SEMIBOLD)
                                                             .child(feature.title),

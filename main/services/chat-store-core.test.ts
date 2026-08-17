@@ -9,6 +9,7 @@ import {
 } from "./chat-store-core.js";
 import type { GenerationTimeline } from "../../renderer/shared/generation-timeline.js";
 import type { SubagentMessageReferenceV1 } from "../../renderer/shared/subagent-runs.js";
+import { chatForRenderer } from "./visible-chat-projection.js";
 
 async function testStore(t: test.TestContext) {
   const directory = await fs.mkdtemp(
@@ -115,6 +116,127 @@ test("persists canonical Pi assistant provenance across restart without crossing
   });
   assert.equal(copied.messages[1]?.pi, undefined);
   assert.equal(copied.messages[1]?.reasoning, undefined);
+});
+
+test("canonicalizes privacy-safe provider failure metadata across restart and IPC projection", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "aiden-chat-provider-failure-"),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const first = createChatStore(async () => directory);
+  const chat = await first.create({});
+  const privateCanary = "PRIVATE_PROVIDER_FAILURE_b830";
+  await first.appendMessage(chat.id, {
+    role: "assistant",
+    content: "Saved partial",
+    providerFailure: {
+      version: 1,
+      category: "network",
+      attempts: 2,
+      retryExhausted: true,
+      rawError: privateCanary,
+    } as never,
+  });
+
+  const restarted = createChatStore(async () => directory);
+  const restored = await restarted.get(chat.id);
+  assert.deepEqual(restored?.messages[0]?.providerFailure, {
+    version: 1,
+    category: "network",
+    attempts: 2,
+    retryExhausted: true,
+  });
+  const projected = chatForRenderer(restored);
+  assert.doesNotMatch(JSON.stringify(projected), new RegExp(privateCanary, "u"));
+  assert.deepEqual(projected?.messages[0]?.providerFailure, {
+    version: 1,
+    category: "network",
+    attempts: 2,
+    retryExhausted: true,
+  });
+  const injected = chatForRenderer({
+    ...restored!,
+    messages: [
+      {
+        ...restored!.messages[0]!,
+        providerFailure: {
+          ...restored!.messages[0]!.providerFailure!,
+          rawError: privateCanary,
+        } as never,
+      },
+    ],
+  });
+  assert.doesNotMatch(JSON.stringify(injected), new RegExp(privateCanary, "u"));
+});
+
+test("migrates legacy provider errors to closed metadata and scrubs the chat payload", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "aiden-chat-provider-failure-migration-"),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const first = createChatStore(async () => directory);
+  const chat = await first.create({});
+  await first.appendMessage(chat.id, {
+    role: "assistant",
+    content: "Saved partial",
+    pi: {
+      role: "assistant",
+      content: [{ type: "text", text: "Saved partial" }],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude",
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "error",
+      timestamp: 10,
+    },
+  });
+  const privateCanary = "PRIVATE_LEGACY_PROVIDER_ERROR_a41d";
+  const payloadPath = path.join(directory, `${chat.id}.json`);
+  const legacy = JSON.parse(await fs.readFile(payloadPath, "utf8")) as {
+    messages: Array<Record<string, unknown>>;
+  };
+  const legacyPi = legacy.messages[0]?.pi as Record<string, unknown>;
+  legacyPi.errorMessage = `socket connection was closed ${privateCanary}`;
+  legacyPi.diagnostics = { privateCanary };
+  delete legacy.messages[0]?.providerFailure;
+  await fs.writeFile(payloadPath, JSON.stringify(legacy), "utf8");
+
+  const restarted = createChatStore(async () => directory);
+  const restored = await restarted.get(chat.id);
+  assert.deepEqual(restored?.messages[0]?.providerFailure, {
+    version: 1,
+    category: "network",
+    attempts: 0,
+    retryExhausted: false,
+  });
+  assert.doesNotMatch(JSON.stringify(restored), new RegExp(privateCanary, "u"));
+
+  const migratedBytes = await fs.readFile(payloadPath, "utf8");
+  assert.doesNotMatch(migratedBytes, new RegExp(privateCanary, "u"));
+  const migrated = JSON.parse(migratedBytes) as {
+    messages: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(migrated.messages[0]?.providerFailure, {
+    version: 1,
+    category: "network",
+    attempts: 0,
+    retryExhausted: false,
+  });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(migrated.messages[0]?.pi, "errorMessage"),
+    false,
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(migrated.messages[0]?.pi, "diagnostics"),
+    false,
+  );
 });
 
 test("chat payload writes are atomic when staged-file sync fails", async (t) => {
@@ -641,7 +763,7 @@ test("persists safe assistant milestones and drops invalid timeline data", async
   const store = await testStore(t);
   const chat = await store.create({});
   const timeline: GenerationTimeline = {
-    version: 2,
+    version: 3,
     generationId: "generation-1",
     status: "completed",
     startedAt: 10,
@@ -652,12 +774,14 @@ test("persists safe assistant milestones and drops invalid timeline data", async
         order: 0,
         kind: "tool",
         toolCallId: "call-1",
-        toolName: "read_file",
-        label: "Read file",
+        toolName: "edit_file",
+        label: "Edit file",
         status: "completed",
         startedAt: 11,
         updatedAt: 12,
         finishedAt: 12,
+        contentOffset: 0,
+        lineChanges: { additions: 7, deletions: 2 },
         target: "src/index.ts",
       },
     ],
@@ -677,6 +801,14 @@ test("persists safe assistant milestones and drops invalid timeline data", async
     } as GenerationTimeline,
   });
   await store.appendMessage(chat.id, {
+    role: "assistant",
+    content: "Short.",
+    timeline: {
+      ...timeline,
+      steps: [{ ...timeline.steps[0], contentOffset: 99 }],
+    },
+  });
+  await store.appendMessage(chat.id, {
     role: "user",
     content: "A renderer cannot attach milestones here.",
     timeline,
@@ -686,6 +818,7 @@ test("persists safe assistant milestones and drops invalid timeline data", async
   assert.deepEqual(updated?.messages[0]?.timeline, timeline);
   assert.equal(updated?.messages[1]?.timeline, undefined);
   assert.equal(updated?.messages[2]?.timeline, undefined);
+  assert.equal(updated?.messages[3]?.timeline, undefined);
 });
 
 test("drops a timeline injected into a stored non-assistant message", async (t) => {
@@ -696,7 +829,7 @@ test("drops a timeline injected into a stored non-assistant message", async (t) 
   const store = createChatStore(async () => directory);
   const chat = await store.create({});
   const timeline: GenerationTimeline = {
-    version: 2,
+    version: 3,
     generationId: "generation-1",
     status: "completed",
     startedAt: 10,
